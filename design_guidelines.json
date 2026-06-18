@@ -1,0 +1,92 @@
+{
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "vibe": "Premium, distinctive, trustworthy, modern Indian E-commerce. Combines high craft (Godly-inspired) with functional B2B/B2C conversion (SaaSFrame-inspired configurator UIs).",
+  "colors": {
+    "background": "#FAFAFA",
+    "surface": "#FFFFFF",
+    "primary": "#FF3B30",
+    "primary_hover": "#D63328",
+    "secondary": "#0A0A0A",
+    "text_main": "#0A0A0A",
+    "text_muted": "#52525B",
+    "border": "#E4E4E7",
+    "accent_trust": "#007AFF"
+  },
+  "typography": {
+    "heading_font": "Cabinet Grotesk",
+    "body_font": "Satoshi",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-black",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-bold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-semibold",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs tracking-[0.2em] uppercase font-bold text-text_muted"
+    }
+  },
+  "spacing_and_layout": {
+    "general": "Generous spacing. Use p-8 to p-12 for standard sections, p-20 to p-32 for marketing sections.",
+    "bento_grid": "Use Mode A 'Tetris' grid for homepage categories and marketing sections (grid-cols-1 md:grid-cols-12 gap-8).",
+    "dashboard_grid": "Use Mode B 'Control Room' grid for configurator and admin dashboard (grid-cols-1 md:grid-cols-4 gap-6).",
+    "hero_overlay": "Gradient overlay from-black/60 via-black/30 to-transparent for text contrast on hero images. Max solid opacity bg-black/40."
+  },
+  "surfaces_and_components": {
+    "header": "Crystal Glass variant: backdrop-blur-xl bg-white/70, border-b border-black/5, shadow-sm. Must have logo, 3-5 links visible on desktop, and primary CTA.",
+    "cards_products": "Neumorphism 'Tactile' variant with sharp edges: flat white background, subtle border-black/5, hover:-translate-y-1 hover:shadow-lg transition-all duration-300.",
+    "buttons": "Primary: bg-[#FF3B30] text-white hover:bg-[#D63328] rounded-sm. Secondary: bg-white border border-[#0A0A0A] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-white rounded-sm.",
+    "configurator_ui": "Split layout. 2D/3D visualizer on left (col-span-1 md:col-span-8), sticky scrolling attribute selector on right (col-span-1 md:col-span-4). Use customized Shadcn forms/tabs.",
+    "marquee": "Use 'Editorial Ribbon' style for corporate clients logo strip. Low contrast pale background, large gaps (gap-24), very slow smooth drift."
+  },
+  "motion_and_interaction": {
+    "hover_states": "All interactive elements must change state. Buttons must elevate and change color.",
+    "page_transitions": "Framer Motion staggered fade-ups for product grids (initial opacity-0 translate-y-4).",
+    "ai_interactions": "When 'Generate with AI' is clicked, use 'The Tracing Beam' border effect around the canvas to signal AI generation.",
+    "accessibility": "respect prefers-reduced-motion. focus:ring-2 focus:ring-[#FF3B30] focus:outline-none."
+  },
+  "iconography": {
+    "library": "@phosphor-icons/react",
+    "style": "Duotone or Regular weight, clean and premium.",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "testing": {
+    "rules": "All interactive elements (buttons, inputs, variants) MUST include data-testid attributes (kebab-case, role-based)."
+  },
+  "media_urls": {
+    "hero_backgrounds": [
+      {
+        "url": "https://images.pexels.com/photos/12025472/pexels-photo-12025472.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "hero_product",
+        "description": "Premium blank white t-shirt mockup"
+      },
+      {
+        "url": "https://images.pexels.com/photos/8532616/pexels-photo-8532616.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "hero_product_dark",
+        "description": "Minimalist black t-shirt on hanger"
+      }
+    ],
+    "corporate_logos": [
+      {
+        "url": "https://images.pexels.com/photos/9973170/pexels-photo-9973170.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "sponsor_logo",
+        "description": "Coca-Cola corporate logo"
+      },
+      {
+        "url": "https://images.pexels.com/photos/31461307/pexels-photo-31461307.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "sponsor_logo",
+        "description": "CGU corporate logo"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the JSON configuration for colors and typography.",
+    "Implement the UI using React, Tailwind CSS, and Shadcn UI.",
+    "Ensure the homepage has 3 clear CTAs in the hero section: 'Design My Product', 'Create With AI', 'Request Corporate Quote'.",
+    "Build the product configurator with a split-screen layout (preview left, options right) and integrate AI Design Studio features as a distinct mode.",
+    "Use Phosphor icons for all UI iconography.",
+    "Integrate Framer Motion for smooth page reveals and hover effects.",
+    "All forms (checkout, corporate RFQ) must use highly customized Shadcn inputs.",
+    "Never use placeholder URLs for images; only use the media_urls provided.",
+    "Ensure 'data-testid' is on all CTAs, form inputs, and variant selectors for testing."
+  ]
+}
