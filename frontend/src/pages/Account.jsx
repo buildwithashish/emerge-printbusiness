@@ -14,7 +14,7 @@ const STATUS_COLORS = {
 };
 
 const Account = () => {
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const [orders, setOrders] = useState([]);
   const [designs, setDesigns] = useState([]);
 
@@ -24,6 +24,7 @@ const Account = () => {
     api.get("/designs/mine").then(r => setDesigns(r.data));
   }, [user]);
 
+  if (!ready) return <div className="max-w-3xl mx-auto px-4 py-20 text-center text-[#52525B]">Loading…</div>;
   if (!user) return (
     <div className="max-w-3xl mx-auto px-4 py-20 text-center">
       <h1 className="font-display text-3xl font-black mb-3">Please login</h1>

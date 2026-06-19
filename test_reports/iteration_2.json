@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 2 retest (frontend only) of MerchCraft AI. All 3 requested retest items PASS: (1) Admin hard-refresh on /admin no longer redirects to /auth — `ready` gate in AuthContext + Admin.jsx works; (2) AI Studio /studio generate now succeeds end-to-end — download-btn appears, generated t-shirt artwork visible in canvas-area within ~30s after EMERGENT_LLM_KEY recharge; (3) Sanity critical path (demo customer login → product detail → add-to-cart → /cart → /checkout COD → /account) completes with order visible in account (4 orders present). No new issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/checkout", "issues": ["After clicking Place Order, URL remains on /checkout instead of redirecting to a confirmation/order-success page. The order IS created (visible in /account), but a confirmation route or toast-redirect would improve UX. Not a blocker."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_merchcraft.py", "/app/test_reports/pytest/results.xml"],
+  "action_items": [
+    "OPTIONAL: Redirect to /account or /order/:id after successful checkout to confirm to user that order was placed (currently stays on /checkout)."
+  ],
+  "critical_code_review_comments": [
+    "AuthContext `ready` flag correctly gates protected routes (Admin/Cart/Account) — fix verified working on hard refresh.",
+    "Admin.jsx renders `admin-loading` testid while ready=false — clean pattern.",
+    "/api/ai/generate-image integration via emergentintegrations OpenAIImageGeneration works after key recharge; returns base64 PNG which UI renders correctly."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request, last iter 30/30)", "frontend": "100% (3/3 retests + sanity flow)"},
+  "test_credentials": "admin@merchcraft.in / Admin@123  •  demo@merchcraft.in / Demo@123",
+  "seed_data_creation": "None — used existing seeded products and accounts.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 1 issues both resolved. AuthContext `ready` flag pattern is the canonical fix — any new protected route must use `const { user, ready } = useAuth()` and short-circuit useEffect until ready=true. AI image generation works end-to-end as long as EMERGENT_LLM_KEY budget is funded. Backend test suite at /app/backend/tests/test_merchcraft.py remains valid for regression.",
+  "rca_of_the_issue": {
+    "retest1_admin_refresh": "RESOLVED. /app/frontend/src/lib/auth.jsx exposes `ready` (set true after /auth/me rehydrate completes). Admin.jsx (and Cart.jsx, Account.jsx) now short-circuit `useEffect` with `if (!ready) return;` before any redirect — verified by Playwright reload on /admin staying on the page and rendering [data-testid='admin-page'].",
+    "retest2_ai_generate": "RESOLVED. EMERGENT_LLM_KEY budget recharged. Live test: prompt 'A vibrant cyberpunk t-shirt design with neon dragon' generated a clean PNG visible in canvas-area, [data-testid='download-btn'] became visible, toast 'Artwork ready' shown.",
+    "sanity_checkout": "WORKING. Demo customer login → add product to cart → COD checkout → order persists and appears in /account (saw 4 orders including the new one)."
+  }
+}

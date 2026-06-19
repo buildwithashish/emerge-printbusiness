@@ -5,9 +5,10 @@ import { Trash, ArrowRight } from "@phosphor-icons/react";
 
 const Cart = () => {
   const { items, removeItem, subtotal } = useCart();
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const nav = useNavigate();
 
+  if (!ready) return <div className="max-w-3xl mx-auto px-4 py-20 text-center text-[#52525B]">Loading…</div>;
   if (!user) return (
     <div className="max-w-3xl mx-auto px-4 py-20 text-center" data-testid="cart-login-prompt">
       <h1 className="font-display text-3xl font-black mb-3">Login to view your cart</h1>

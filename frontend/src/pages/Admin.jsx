@@ -9,7 +9,7 @@ const Tab = ({ active, onClick, children, id }) => (
 );
 
 const Admin = () => {
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const nav = useNavigate();
   const [tab, setTab] = useState("overview");
   const [overview, setOverview] = useState(null);
@@ -19,10 +19,11 @@ const Admin = () => {
   const [settings, setSettings] = useState(null);
 
   useEffect(() => {
+    if (!ready) return;
     if (!user) { nav("/auth"); return; }
     if (user.role !== "admin") { toast.error("Admin only"); nav("/"); return; }
     load();
-  }, [user]);
+  }, [user, ready]);
 
   const load = async () => {
     const [ov, ord, pr, rq, st] = await Promise.all([
@@ -43,6 +44,7 @@ const Admin = () => {
     toast.success("Settings saved");
   };
 
+  if (!ready) return <div className="max-w-6xl mx-auto px-4 py-20 text-center text-[#52525B]" data-testid="admin-loading">Loading…</div>;
   if (!user || user.role !== "admin") return null;
 
   return (
