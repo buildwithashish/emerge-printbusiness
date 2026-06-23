@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
-import { ArrowRight, Sparkle, ShieldCheck, Truck, Medal, ArrowsClockwise, Star } from "@phosphor-icons/react";
+import { ArrowRight, Sparkle, ShieldCheck, Truck, Medal, ArrowsClockwise, Star, Fire, TrendUp } from "@phosphor-icons/react";
 
 const TRUST = [
   { icon: ShieldCheck, label: "Secure Payments" },
@@ -14,12 +14,14 @@ const CLIENTS = ["INFOSYS", "FLIPKART", "ZOMATO", "RAZORPAY", "SWIGGY", "PAYTM",
 
 const Home = () => {
   const [cats, setCats] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [bestsellers, setBestsellers] = useState([]);
+  const [trending, setTrending] = useState([]);
   const [reviews, setReviews] = useState([]);
 
   useEffect(() => {
     api.get("/categories").then(r => setCats(r.data));
-    api.get("/products?sort=trending&limit=8").then(r => setProducts(r.data));
+    api.get("/products/bestsellers?limit=8").then(r => setBestsellers(r.data));
+    api.get("/products/trending?limit=6").then(r => setTrending(r.data));
     api.get("/reviews").then(r => setReviews(r.data.slice(0, 6)));
   }, []);
 
@@ -88,7 +90,7 @@ const Home = () => {
           <Link to="/products" className="hidden sm:inline-flex items-center gap-1 text-sm font-semibold hover:text-[#FF3B30]" data-testid="view-all-categories">View all <ArrowRight size={14} /></Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {cats.map((c, i) => (
+          {cats.map((c) => (
             <Link key={c.id} to={`/products?category=${c.slug}`} data-testid={`category-${c.slug}`} className="group relative aspect-square overflow-hidden rounded-sm bg-[#F4F4F5] border border-black/5 hover:-translate-y-1 hover:shadow-lg transition-all">
               <img src={c.image} alt={c.name} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
@@ -101,27 +103,62 @@ const Home = () => {
         </div>
       </section>
 
-      {/* BEST SELLERS */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20" data-testid="best-sellers">
-        <div className="flex items-end justify-between mb-10">
-          <div>
-            <span className="text-xs uppercase tracking-[0.2em] font-bold text-[#52525B]">Trending</span>
-            <h2 className="font-display text-3xl sm:text-4xl font-black tracking-tight mt-2">Best sellers this week</h2>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
-          {products.map(p => (
-            <Link to={`/products/${p.id}`} key={p.id} data-testid={`product-card-${p.id}`} className="group block">
-              <div className="aspect-square rounded-sm overflow-hidden bg-[#F4F4F5] border border-black/5 mb-3">
-                <img src={p.image} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+      {/* TRENDING NOW STRIP */}
+      {trending.length > 0 && (
+        <section className="bg-gradient-to-r from-[#FF3B30]/5 via-transparent to-[#FF3B30]/5 border-y border-black/5 py-12" data-testid="trending-section">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-end justify-between mb-6">
+              <div>
+                <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] font-bold text-[#FF3B30]">
+                  <TrendUp weight="fill" /> Trending right now
+                </span>
+                <h2 className="font-display text-2xl sm:text-3xl font-black tracking-tight mt-2">Most ordered this week</h2>
               </div>
-              <div className="font-semibold text-sm">{p.name}</div>
-              <div className="text-[#52525B] text-xs uppercase tracking-wider mt-0.5">{p.category}</div>
-              <div className="font-display font-bold text-lg mt-1">₹{p.base_price}</div>
-            </Link>
-          ))}
-        </div>
-      </section>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {trending.map((p, i) => (
+                <Link to={`/products/${p.id}`} key={p.id} data-testid={`trending-${p.id}`} className="group relative">
+                  <div className="aspect-square overflow-hidden rounded-sm bg-white border border-black/5">
+                    <img src={p.image} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <div className="absolute top-2 left-2 inline-flex items-center justify-center w-7 h-7 bg-[#0A0A0A] text-white text-xs font-black rounded-sm">#{i + 1}</div>
+                  </div>
+                  <div className="mt-2 text-xs font-semibold truncate">{p.name}</div>
+                  <div className="text-xs font-display font-bold text-[#FF3B30]">₹{p.base_price}</div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* BEST SELLERS */}
+      {bestsellers.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20" data-testid="best-sellers">
+          <div className="flex items-end justify-between mb-10">
+            <div>
+              <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] font-bold text-[#52525B]">
+                <Fire weight="fill" className="text-[#FF3B30]" /> Bestsellers
+              </span>
+              <h2 className="font-display text-3xl sm:text-4xl font-black tracking-tight mt-2">Customer favourites</h2>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+            {bestsellers.map(p => (
+              <Link to={`/products/${p.id}`} key={p.id} data-testid={`bestseller-card-${p.id}`} className="group block">
+                <div className="aspect-square rounded-sm overflow-hidden bg-[#F4F4F5] border border-black/5 mb-3 relative">
+                  <img src={p.image} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  {p.low_stock && (
+                    <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 px-2 py-0.5 rounded-sm">Few left</span>
+                  )}
+                </div>
+                <div className="font-semibold text-sm">{p.name}</div>
+                <div className="text-[#52525B] text-xs uppercase tracking-wider mt-0.5">{p.category}</div>
+                <div className="font-display font-bold text-lg mt-1">₹{p.base_price}</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* AI STUDIO TEASER */}
       <section className="bg-[#0A0A0A] text-white py-24" data-testid="studio-teaser">
@@ -139,7 +176,7 @@ const Home = () => {
             </Link>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {["https://images.unsplash.com/photo-1614680376593-902f74cf0d41?w=600&q=80","https://images.unsplash.com/photo-1561070791-2526d30994b8?w=600&q=80","https://images.unsplash.com/photo-1547891654-e66ed7ebb968?w=600&q=80","https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?w=600&q=80"].map((u,i)=>(
+            {["https://images.unsplash.com/photo-1614680376593-902f74cf0d41?w=600&q=80","https://images.unsplash.com/photo-1561070791-2526d30994b8?w=600&q=80","https://images.unsplash.com/photo-1547891654-e66ed7ebb968?w=600&q=80","https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?w=600&q=80"].map((u, i) => (
               <div key={i} className="aspect-square overflow-hidden rounded-sm bg-white/5"><img src={u} alt="" className="w-full h-full object-cover" /></div>
             ))}
           </div>
@@ -156,9 +193,9 @@ const Home = () => {
           {reviews.map(r => (
             <div key={r.id} className="border border-black/5 bg-white p-6 rounded-sm" data-testid={`review-${r.id}`}>
               <div className="flex gap-0.5 text-[#FF3B30] mb-3">
-                {Array.from({length: r.rating}).map((_,i)=>(<Star key={i} size={16} weight="fill" />))}
+                {Array.from({ length: r.rating }).map((_, i) => (<Star key={i} size={16} weight="fill" />))}
               </div>
-              <p className="text-sm leading-relaxed mb-4">"{r.comment}"</p>
+              <p className="text-sm leading-relaxed mb-4">&ldquo;{r.comment}&rdquo;</p>
               {r.image_url && <img src={r.image_url} alt="" className="w-full h-32 object-cover rounded-sm mb-3" />}
               <div className="text-xs font-bold uppercase tracking-wider">{r.user_name}</div>
             </div>
@@ -194,7 +231,7 @@ const Home = () => {
           <div className="grid grid-cols-3 gap-3">
             {[1499, 999, 599].map((p, i) => (
               <div key={i} className="aspect-square bg-white border border-black/5 p-4 flex flex-col justify-between">
-                <div className="text-xs uppercase tracking-widest text-[#52525B] font-bold">Kit {i+1}</div>
+                <div className="text-xs uppercase tracking-widest text-[#52525B] font-bold">Kit {i + 1}</div>
                 <div className="font-display font-black text-2xl">₹{p}</div>
               </div>
             ))}

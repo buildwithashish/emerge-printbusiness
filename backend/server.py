@@ -1,15 +1,19 @@
 """MerchCraft AI — FastAPI backend.
-Modules: auth, catalog, cart, orders, ai-design, corporate-rfq, reviews, admin, payments.
+Modules: auth, catalog (with variant images / bestseller / trending / watching count),
+cart, orders, ai-design, corporate-rfq, reviews, admin (3 roles: customer / admin /
+superadmin), payments, bulk-import, optional S3-compatible storage for AI artwork.
 """
 import os
 import uuid
 import base64
+import csv
+import io
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional, Any, Dict
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -25,6 +29,14 @@ DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 
+# Optional S3-compatible storage (Emergent / AWS / R2). When all creds present, AI
+# artwork is uploaded and only the public URL is stored — keeps Mongo lean.
+S3_ENDPOINT = os.environ.get("S3_ENDPOINT_URL", "")
+S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "")
+S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
+S3_BUCKET = os.environ.get("S3_BUCKET", "")
+S3_PUBLIC_BASE = os.environ.get("S3_PUBLIC_BASE", "")  # CDN/public URL prefix
+
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
@@ -33,6 +45,8 @@ api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("merchcraft")
+
+ROLES = {"customer", "admin", "superadmin"}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -74,9 +88,33 @@ async def require_user(user: Optional[dict] = Depends(current_user)) -> dict:
 
 
 async def require_admin(user: dict = Depends(require_user)) -> dict:
-    if user.get("role") != "admin":
+    if user.get("role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+
+async def require_superadmin(user: dict = Depends(require_user)) -> dict:
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Super-admin access required")
+    return user
+
+
+def upload_to_storage(data: bytes, key: str, content_type: str = "image/png") -> Optional[str]:
+    """Upload bytes to S3 if creds configured; return public URL or None."""
+    if not (S3_ENDPOINT and S3_ACCESS_KEY and S3_SECRET_KEY and S3_BUCKET):
+        return None
+    try:
+        import boto3  # lazy import
+        s3 = boto3.client("s3", endpoint_url=S3_ENDPOINT,
+                          aws_access_key_id=S3_ACCESS_KEY,
+                          aws_secret_access_key=S3_SECRET_KEY,
+                          region_name="us-east-1")
+        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=data, ContentType=content_type, ACL="public-read")
+        base = S3_PUBLIC_BASE or f"{S3_ENDPOINT.rstrip('/')}/{S3_BUCKET}"
+        return f"{base.rstrip('/')}/{key}"
+    except Exception as e:
+        logger.exception("S3 upload failed: %s", e)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -98,10 +136,14 @@ class ProductIn(BaseModel):
     category: str  # slug
     description: str = ""
     base_price: float
-    image: str = ""
-    variants: Dict[str, List[str]] = {}  # {"size":["S","M","L"], "color":["Black","White"]}
+    image: str = ""  # default / fallback image
+    variants: Dict[str, List[str]] = {}
+    variant_images: Dict[str, Dict[str, str]] = {}  # {"color":{"Black":"url","White":"url"}}
     tags: List[str] = []
     is_active: bool = True
+    is_bestseller: bool = False
+    low_stock: bool = False
+    watching_count: int = 0
 
 
 class CategoryIn(BaseModel):
@@ -121,7 +163,7 @@ class CartItemIn(BaseModel):
 
 class CheckoutIn(BaseModel):
     address: Dict[str, str]
-    payment_method: str = "razorpay"  # razorpay | cod | mock
+    payment_method: str = "razorpay"
 
 
 class AIPromptIn(BaseModel):
@@ -158,6 +200,18 @@ class SettingsIn(BaseModel):
     cod_enabled: Optional[bool] = None
     ai_model: Optional[str] = None
     seo: Optional[Dict[str, Any]] = None
+    free_shipping_threshold: Optional[int] = None  # ₹ — show flash card under it
+
+
+class AdminCreateIn(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+
+class FlagsIn(BaseModel):
+    is_bestseller: Optional[bool] = None
+    low_stock: Optional[bool] = None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -243,6 +297,11 @@ async def delete_category(cid: str, _admin=Depends(require_admin)):
     return {"ok": True}
 
 
+async def _active_category_slugs() -> set:
+    cats = await db.categories.find({"is_active": True}, {"_id": 0, "slug": 1}).to_list(500)
+    return {c["slug"] for c in cats}
+
+
 @api.get("/products")
 async def list_products(
     category: Optional[str] = None,
@@ -258,8 +317,31 @@ async def list_products(
             {"name": {"$regex": q, "$options": "i"}},
             {"tags": {"$regex": q, "$options": "i"}},
         ]
-    sort_map = {"trending": [("sold_count", -1)], "new": [("created_at", -1)], "price_asc": [("base_price", 1)], "price_desc": [("base_price", -1)]}
+    sort_map = {"trending": [("sold_count", -1)], "new": [("created_at", -1)],
+                "price_asc": [("base_price", 1)], "price_desc": [("base_price", -1)]}
     cursor = db.products.find(flt, {"_id": 0}).sort(sort_map.get(sort or "trending", [("sold_count", -1)])).limit(limit)
+    return await cursor.to_list(limit)
+
+
+@api.get("/products/trending")
+async def trending_products(limit: int = 6):
+    """Top sold products from active categories only."""
+    active = await _active_category_slugs()
+    cursor = db.products.find(
+        {"is_active": True, "category": {"$in": list(active)}},
+        {"_id": 0}
+    ).sort("sold_count", -1).limit(limit)
+    return await cursor.to_list(limit)
+
+
+@api.get("/products/bestsellers")
+async def bestseller_products(limit: int = 8):
+    """Admin-flagged bestsellers, excluded if category disabled."""
+    active = await _active_category_slugs()
+    cursor = db.products.find(
+        {"is_active": True, "is_bestseller": True, "category": {"$in": list(active)}},
+        {"_id": 0}
+    ).sort("sold_count", -1).limit(limit)
     return await cursor.to_list(limit)
 
 
@@ -287,10 +369,79 @@ async def update_product(pid: str, body: ProductIn, _admin=Depends(require_admin
     return await db.products.find_one({"id": pid}, {"_id": 0})
 
 
+@api.patch("/products/{pid}/flags")
+async def update_product_flags(pid: str, body: FlagsIn, _admin=Depends(require_admin)):
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not patch:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.products.update_one({"id": pid}, {"$set": patch})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not found")
+    return await db.products.find_one({"id": pid}, {"_id": 0})
+
+
+@api.put("/products/{pid}/watching")
+async def set_watching(pid: str, body: Dict[str, int], _admin=Depends(require_admin)):
+    count = int(body.get("watching_count", 0))
+    if count < 0:
+        raise HTTPException(400, "Must be ≥ 0")
+    res = await db.products.update_one({"id": pid}, {"$set": {"watching_count": count}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not found")
+    return {"ok": True, "watching_count": count}
+
+
 @api.delete("/products/{pid}")
 async def delete_product(pid: str, _admin=Depends(require_admin)):
     await db.products.delete_one({"id": pid})
     return {"ok": True}
+
+
+@api.post("/products/bulk-import")
+async def bulk_import_products(file: UploadFile = File(...), _admin=Depends(require_admin)):
+    """Upload a CSV with columns: name,category,description,base_price,image,tags,is_active,is_bestseller
+    Variants are inferred from columns variants_size, variants_color, variants_fabric, etc.
+    """
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8")
+    except Exception:
+        text = raw.decode("latin-1")
+    reader = csv.DictReader(io.StringIO(text))
+    created = 0
+    errors: List[str] = []
+    for i, row in enumerate(reader, 2):
+        try:
+            if not row.get("name") or not row.get("category") or not row.get("base_price"):
+                errors.append(f"Row {i}: missing name/category/base_price")
+                continue
+            variants = {}
+            for key, val in row.items():
+                if key and key.startswith("variants_") and val:
+                    vk = key.replace("variants_", "")
+                    variants[vk] = [v.strip() for v in val.split("|") if v.strip()]
+            doc = {
+                "id": new_id(),
+                "name": row["name"].strip(),
+                "category": row["category"].strip(),
+                "description": row.get("description", "").strip(),
+                "base_price": float(row["base_price"]),
+                "image": row.get("image", "").strip(),
+                "variants": variants,
+                "variant_images": {},
+                "tags": [t.strip() for t in row.get("tags", "").split("|") if t.strip()],
+                "is_active": row.get("is_active", "true").strip().lower() != "false",
+                "is_bestseller": row.get("is_bestseller", "false").strip().lower() == "true",
+                "low_stock": row.get("low_stock", "false").strip().lower() == "true",
+                "watching_count": 0,
+                "sold_count": 0,
+                "created_at": now_iso(),
+            }
+            await db.products.insert_one(doc)
+            created += 1
+        except Exception as e:
+            errors.append(f"Row {i}: {e}")
+    return {"created": created, "errors": errors}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -301,7 +452,6 @@ async def get_cart(user: dict = Depends(require_user)):
     cart = await db.carts.find_one({"user_id": user["id"]}, {"_id": 0})
     if not cart:
         cart = {"user_id": user["id"], "items": []}
-    # populate product info
     items = []
     for it in cart.get("items", []):
         p = await db.products.find_one({"id": it["product_id"]}, {"_id": 0})
@@ -361,13 +511,21 @@ async def checkout(body: CheckoutIn, user: dict = Depends(require_user)):
             continue
         amount = float(p["base_price"]) * int(it.get("quantity", 1))
         total += amount
-        line_items.append({**it, "unit_price": p["base_price"], "amount": amount, "product_name": p["name"], "product_image": p.get("image", "")})
+        line_items.append({**it, "unit_price": p["base_price"], "amount": amount,
+                           "product_name": p["name"], "product_image": p.get("image", "")})
+
+    # shipping
+    threshold = int(settings.get("free_shipping_threshold", 999))
+    shipping_cost = 0 if total >= threshold else 49
+    total += shipping_cost
 
     order = {
         "id": new_id(),
         "order_number": f"MC{int(datetime.now().timestamp())}",
         "user_id": user["id"],
         "items": line_items,
+        "subtotal": round(total - shipping_cost, 2),
+        "shipping_cost": shipping_cost,
         "total": round(total, 2),
         "address": body.address,
         "payment_method": body.payment_method,
@@ -376,7 +534,6 @@ async def checkout(body: CheckoutIn, user: dict = Depends(require_user)):
         "created_at": now_iso(),
     }
 
-    # Razorpay path (mock if no keys, real if keys provided)
     if body.payment_method == "razorpay":
         rzp_id = os.environ.get("RAZORPAY_KEY_ID", "")
         rzp_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
@@ -392,8 +549,10 @@ async def checkout(body: CheckoutIn, user: dict = Depends(require_user)):
                 logger.exception("Razorpay error: %s", e)
                 order["razorpay_order_id"] = f"order_mock_{new_id()[:12]}"
         else:
-            # No real keys configured — proceed with mock order id for demo
             order["razorpay_order_id"] = f"order_mock_{new_id()[:12]}"
+    elif body.payment_method == "cod":
+        if settings.get("cod_enabled", True) is False:
+            raise HTTPException(400, "Cash on Delivery disabled by admin")
 
     await db.orders.insert_one(order)
     await db.carts.update_one({"user_id": user["id"]}, {"$set": {"items": []}})
@@ -403,7 +562,6 @@ async def checkout(body: CheckoutIn, user: dict = Depends(require_user)):
 
 @api.post("/orders/{oid}/verify-payment")
 async def verify_payment(oid: str, payload: Dict[str, Any], user: dict = Depends(require_user)):
-    # In production use razorpay.utility.verify_payment_signature
     await db.orders.update_one(
         {"id": oid, "user_id": user["id"]},
         {"$set": {"payment_status": "paid", "status": "processing", "payment_payload": payload}},
@@ -426,7 +584,7 @@ async def get_order(oid: str, user: dict = Depends(require_user)):
 
 
 # ─────────────────────────────────────────────────────────────
-# AI Design (image gen + prompt enhance)
+# AI Design (image gen + prompt enhance) — uploads to S3 if available
 # ─────────────────────────────────────────────────────────────
 @api.post("/ai/generate-image")
 async def generate_image(body: AIPromptIn, user: Optional[dict] = Depends(current_user)):
@@ -440,12 +598,16 @@ async def generate_image(body: AIPromptIn, user: Optional[dict] = Depends(curren
         gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
         images = await gen.generate_images(prompt=prompt, model="gpt-image-1", number_of_images=1)
         img_bytes = images[0]
-        b64 = base64.b64encode(img_bytes).decode()
-        data_url = f"data:image/png;base64,{b64}"
-        # save record
-        rec = {"id": new_id(), "user_id": user.get("id") if user else None, "prompt": prompt, "data_url": data_url, "created_at": now_iso()}
+        rec_id = new_id()
+        # Try S3 upload first; fall back to base64 data URL if not configured
+        url = upload_to_storage(img_bytes, f"ai-designs/{rec_id}.png")
+        if not url:
+            b64 = base64.b64encode(img_bytes).decode()
+            url = f"data:image/png;base64,{b64}"
+        rec = {"id": rec_id, "user_id": user.get("id") if user else None,
+               "prompt": prompt, "data_url": url, "created_at": now_iso()}
         await db.designs.insert_one(rec)
-        return {"id": rec["id"], "image": data_url, "prompt": prompt}
+        return {"id": rec["id"], "image": url, "prompt": prompt}
     except Exception as e:
         logger.exception("AI image gen failed: %s", e)
         raise HTTPException(500, f"AI generation failed: {str(e)}")
@@ -466,7 +628,6 @@ async def enhance_prompt(body: PromptEnhanceIn):
         return {"enhanced": out.strip()}
     except Exception as e:
         logger.exception("Prompt enhance failed: %s", e)
-        # graceful fallback
         return {"enhanced": body.prompt}
 
 
@@ -511,14 +672,37 @@ async def list_rfqs(_admin=Depends(require_admin)):
 
 
 # ─────────────────────────────────────────────────────────────
-# Settings (admin)
+# Settings
 # ─────────────────────────────────────────────────────────────
+DEFAULT_SETTINGS = {
+    "key": "global",
+    "razorpay_enabled": True,
+    "stripe_enabled": False,
+    "cod_enabled": True,
+    "ai_model": "gpt-image-1",
+    "free_shipping_threshold": 999,
+    "seo": {
+        "title": "MerchCraft AI — Custom Merch, Designed by AI",
+        "description": "Design custom T-shirts, mugs, hoodies, and corporate gifts with AI artwork. Made in India.",
+        "keywords": "custom merch india, AI design, corporate gifts, t-shirt printing",
+    },
+}
+
+
 @api.get("/settings")
 async def get_settings():
     s = await db.settings.find_one({"key": "global"}, {"_id": 0})
     if not s:
-        s = {"key": "global", "razorpay_enabled": True, "stripe_enabled": False, "cod_enabled": True, "ai_model": "gpt-image-1", "seo": {"title": "MerchCraft AI — Custom Merch, Designed by AI", "description": "Design custom T-shirts, mugs, hoodies, and corporate gifts with AI artwork. Made in India.", "keywords": "custom merch india, AI design, corporate gifts, t-shirt printing"}}
+        s = DEFAULT_SETTINGS.copy()
         await db.settings.insert_one(s.copy())
+    # back-fill missing keys for legacy installs
+    patched = False
+    for k, v in DEFAULT_SETTINGS.items():
+        if k not in s:
+            s[k] = v
+            patched = True
+    if patched:
+        await db.settings.update_one({"key": "global"}, {"$set": s}, upsert=True)
     return s
 
 
@@ -530,7 +714,7 @@ async def update_settings(body: SettingsIn, _admin=Depends(require_admin)):
 
 
 # ─────────────────────────────────────────────────────────────
-# Admin overview
+# Admin overview / Orders / Customer Users / Admin Users
 # ─────────────────────────────────────────────────────────────
 @api.get("/admin/overview")
 async def admin_overview(_admin=Depends(require_admin)):
@@ -540,7 +724,7 @@ async def admin_overview(_admin=Depends(require_admin)):
         {"$group": {"_id": None, "total": {"$sum": "$total"}}},
     ]).to_list(1)
     revenue = revenue_agg[0]["total"] if revenue_agg else 0
-    total_users = await db.users.count_documents({})
+    total_users = await db.users.count_documents({"role": "customer"})
     total_products = await db.products.count_documents({})
     pending_rfqs = await db.rfqs.count_documents({"status": "new"})
     recent_orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).limit(10).to_list(10)
@@ -557,7 +741,6 @@ async def admin_overview(_admin=Depends(require_admin)):
 @api.get("/admin/orders")
 async def admin_all_orders(_admin=Depends(require_admin)):
     orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    # enrich with user info
     for o in orders:
         u = await db.users.find_one({"id": o.get("user_id")}, {"_id": 0, "password_hash": 0})
         o["customer"] = {"name": u["name"], "email": u["email"]} if u else None
@@ -583,13 +766,11 @@ async def admin_update_order_status(oid: str, body: Dict[str, str], _admin=Depen
     return {"ok": True}
 
 
-# ─────────────────────────────────────────────────────────────
-# Admin: Users
-# ─────────────────────────────────────────────────────────────
+# Customers (regular users) — admin & superadmin both can manage
 @api.get("/admin/users")
 async def admin_list_users(_admin=Depends(require_admin)):
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
-    # compute order counts
+    """Only customers — admins are managed via /admin/admins (superadmin only)."""
+    users = await db.users.find({"role": "customer"}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
     for u in users:
         u["order_count"] = await db.orders.count_documents({"user_id": u["id"]})
     return users
@@ -597,14 +778,15 @@ async def admin_list_users(_admin=Depends(require_admin)):
 
 @api.put("/admin/users/{uid}")
 async def admin_update_user(uid: str, body: Dict[str, Any], _admin=Depends(require_admin)):
-    allowed = {k: v for k, v in body.items() if k in {"name", "role"}}
-    if "role" in allowed and allowed["role"] not in {"customer", "admin"}:
-        raise HTTPException(400, "Invalid role")
+    target = await db.users.find_one({"id": uid}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Not found")
+    if target.get("role") != "customer":
+        raise HTTPException(403, "Use /admin/admins for admin accounts")
+    allowed = {k: v for k, v in body.items() if k in {"name"}}
     if not allowed:
         raise HTTPException(400, "Nothing to update")
-    res = await db.users.update_one({"id": uid}, {"$set": allowed})
-    if res.matched_count == 0:
-        raise HTTPException(404, "Not found")
+    await db.users.update_one({"id": uid}, {"$set": allowed})
     return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
 
 
@@ -612,6 +794,62 @@ async def admin_update_user(uid: str, body: Dict[str, Any], _admin=Depends(requi
 async def admin_delete_user(uid: str, user: dict = Depends(require_admin)):
     if uid == user["id"]:
         raise HTTPException(400, "Cannot delete yourself")
+    target = await db.users.find_one({"id": uid}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Not found")
+    if target.get("role") != "customer":
+        raise HTTPException(403, "Cannot delete admin accounts via this endpoint")
+    await db.users.delete_one({"id": uid})
+    return {"ok": True}
+
+
+# Admins — superadmin only
+@api.get("/admin/admins")
+async def list_admins(_sa=Depends(require_superadmin)):
+    admins = await db.users.find({"role": {"$in": ["admin", "superadmin"]}}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(200)
+    return admins
+
+
+@api.post("/admin/admins")
+async def create_admin(body: AdminCreateIn, _sa=Depends(require_superadmin)):
+    existing = await db.users.find_one({"email": body.email.lower()})
+    if existing:
+        raise HTTPException(409, "Email already registered")
+    user = {
+        "id": new_id(),
+        "email": body.email.lower(),
+        "name": body.name,
+        "password_hash": bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode(),
+        "role": "admin",
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(user)
+    return {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
+
+
+@api.put("/admin/admins/{uid}")
+async def update_admin(uid: str, body: Dict[str, Any], sa: dict = Depends(require_superadmin)):
+    target = await db.users.find_one({"id": uid}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Not found")
+    if target.get("role") == "superadmin" and target.get("id") != sa["id"]:
+        raise HTTPException(403, "Cannot modify another super-admin")
+    allowed = {k: v for k, v in body.items() if k in {"name"}}
+    if not allowed:
+        raise HTTPException(400, "Nothing to update")
+    await db.users.update_one({"id": uid}, {"$set": allowed})
+    return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+
+
+@api.delete("/admin/admins/{uid}")
+async def delete_admin(uid: str, sa: dict = Depends(require_superadmin)):
+    if uid == sa["id"]:
+        raise HTTPException(400, "Cannot delete yourself")
+    target = await db.users.find_one({"id": uid}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Not found")
+    if target.get("role") == "superadmin":
+        raise HTTPException(403, "Cannot delete a super-admin")
     await db.users.delete_one({"id": uid})
     return {"ok": True}
 
@@ -622,28 +860,33 @@ async def admin_delete_user(uid: str, user: dict = Depends(require_admin)):
 @api.post("/seed")
 async def seed():
     if await db.products.count_documents({}) > 0:
+        # Still ensure superadmin user exists for upgrade scenarios
+        if not await db.users.find_one({"email": "superadmin@merchcraft.in"}):
+            await db.users.insert_one({
+                "id": new_id(),
+                "email": "superadmin@merchcraft.in",
+                "name": "Super Admin",
+                "password_hash": bcrypt.hashpw(b"Super@123", bcrypt.gensalt()).decode(),
+                "role": "superadmin",
+                "created_at": now_iso(),
+            })
         return {"ok": True, "msg": "already seeded"}
 
-    # Admin user
-    if not await db.users.find_one({"email": "admin@merchcraft.in"}):
-        await db.users.insert_one({
-            "id": new_id(),
-            "email": "admin@merchcraft.in",
-            "name": "Admin",
-            "password_hash": bcrypt.hashpw(b"Admin@123", bcrypt.gensalt()).decode(),
-            "role": "admin",
-            "created_at": now_iso(),
-        })
-    # Demo customer
-    if not await db.users.find_one({"email": "demo@merchcraft.in"}):
-        await db.users.insert_one({
-            "id": new_id(),
-            "email": "demo@merchcraft.in",
-            "name": "Demo User",
-            "password_hash": bcrypt.hashpw(b"Demo@123", bcrypt.gensalt()).decode(),
-            "role": "customer",
-            "created_at": now_iso(),
-        })
+    users = [
+        ("superadmin@merchcraft.in", "Super Admin", "Super@123", "superadmin"),
+        ("admin@merchcraft.in", "Admin", "Admin@123", "admin"),
+        ("demo@merchcraft.in", "Demo User", "Demo@123", "customer"),
+    ]
+    for email, name, pw, role in users:
+        if not await db.users.find_one({"email": email}):
+            await db.users.insert_one({
+                "id": new_id(),
+                "email": email,
+                "name": name,
+                "password_hash": bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode(),
+                "role": role,
+                "created_at": now_iso(),
+            })
 
     cats = [
         ("t-shirts", "T-Shirts", "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1200&q=80"),
@@ -658,23 +901,40 @@ async def seed():
     for slug, name, img in cats:
         await db.categories.insert_one({"id": new_id(), "slug": slug, "name": name, "image": img, "is_active": True})
 
+    # Color-specific image samples for the Classic Cotton Tee + Pullover Hoodie
+    classic_tee_imgs = {
+        "color": {
+            "Black": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1200&q=80",
+            "White": "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=1200&q=80",
+            "Navy": "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=1200&q=80",
+            "Olive": "https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=1200&q=80",
+        }
+    }
+    hoodie_imgs = {
+        "color": {
+            "Black": "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=1200&q=80",
+            "Grey": "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=1200&q=80",
+            "Maroon": "https://images.unsplash.com/photo-1620012253295-c15cc3e65df4?w=1200&q=80",
+        }
+    }
+
     products = [
-        ("Classic Cotton Tee", "t-shirts", 499, "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1200&q=80", {"size": ["S", "M", "L", "XL", "XXL"], "color": ["Black", "White", "Navy", "Olive"], "fabric": ["100% Cotton", "Cotton Blend"]}),
-        ("Premium Heavyweight Tee", "t-shirts", 799, "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=1200&q=80", {"size": ["S", "M", "L", "XL"], "color": ["Black", "Sand", "Forest"]}),
-        ("Oversized Drop-Shoulder Tee", "t-shirts", 899, "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=1200&q=80", {"size": ["M", "L", "XL"], "color": ["Black", "Beige"]}),
-        ("Pullover Hoodie", "hoodies", 1499, "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=1200&q=80", {"size": ["S", "M", "L", "XL"], "color": ["Black", "Grey", "Maroon"]}),
-        ("Zip-Up Hoodie", "hoodies", 1699, "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=1200&q=80", {"size": ["M", "L", "XL"], "color": ["Black", "Navy"]}),
-        ("Ceramic Coffee Mug 350ml", "mugs", 299, "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=1200&q=80", {"capacity": ["350ml"], "color": ["White", "Black-inside"]}),
-        ("Magic Color-Change Mug", "mugs", 449, "https://images.unsplash.com/photo-1481833761820-0509d3217039?w=1200&q=80", {"capacity": ["330ml"], "color": ["Black-to-White"]}),
-        ("iPhone 15 Pro Case", "mobile-covers", 399, "https://images.unsplash.com/photo-1574944985070-8f3ebc6b79d2?w=1200&q=80", {"finish": ["Matte", "Glossy"]}),
-        ("Samsung S24 Case", "mobile-covers", 399, "https://images.unsplash.com/photo-1592890288564-76628a30a657?w=1200&q=80", {"finish": ["Matte", "Glossy"]}),
-        ("A3 Matte Poster", "posters", 249, "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=1200&q=80", {"size": ["A4", "A3", "A2"]}),
-        ("Heavy Canvas Tote", "tote-bags", 349, "https://images.unsplash.com/photo-1591561954557-26941169b49e?w=1200&q=80", {"color": ["Natural", "Black"]}),
-        ("Snapback Cap", "caps", 449, "https://images.unsplash.com/photo-1521369909029-2afed882baee?w=1200&q=80", {"color": ["Black", "White", "Khaki"]}),
-        ("Employee Welcome Kit", "corporate-gifts", 1999, "https://images.unsplash.com/photo-1513885535751-8b9238bd345a?w=1200&q=80", {"variant": ["Standard", "Premium"]}),
-        ("Custom Stainless Tumbler", "corporate-gifts", 899, "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=1200&q=80", {"capacity": ["500ml", "750ml"], "color": ["Silver", "Black"]}),
+        ("Classic Cotton Tee", "t-shirts", 499, "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1200&q=80", {"size": ["S", "M", "L", "XL", "XXL"], "color": ["Black", "White", "Navy", "Olive"], "fabric": ["100% Cotton", "Cotton Blend"]}, classic_tee_imgs, True, True),
+        ("Premium Heavyweight Tee", "t-shirts", 799, "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=1200&q=80", {"size": ["S", "M", "L", "XL"], "color": ["Black", "Sand", "Forest"]}, {}, True, False),
+        ("Oversized Drop-Shoulder Tee", "t-shirts", 899, "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=1200&q=80", {"size": ["M", "L", "XL"], "color": ["Black", "Beige"]}, {}, False, False),
+        ("Pullover Hoodie", "hoodies", 1499, "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=1200&q=80", {"size": ["S", "M", "L", "XL"], "color": ["Black", "Grey", "Maroon"]}, hoodie_imgs, True, False),
+        ("Zip-Up Hoodie", "hoodies", 1699, "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=1200&q=80", {"size": ["M", "L", "XL"], "color": ["Black", "Navy"]}, {}, False, True),
+        ("Ceramic Coffee Mug 350ml", "mugs", 299, "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=1200&q=80", {"capacity": ["350ml"], "color": ["White", "Black-inside"]}, {}, True, False),
+        ("Magic Color-Change Mug", "mugs", 449, "https://images.unsplash.com/photo-1481833761820-0509d3217039?w=1200&q=80", {"capacity": ["330ml"], "color": ["Black-to-White"]}, {}, False, False),
+        ("iPhone 15 Pro Case", "mobile-covers", 399, "https://images.unsplash.com/photo-1574944985070-8f3ebc6b79d2?w=1200&q=80", {"finish": ["Matte", "Glossy"]}, {}, False, False),
+        ("Samsung S24 Case", "mobile-covers", 399, "https://images.unsplash.com/photo-1592890288564-76628a30a657?w=1200&q=80", {"finish": ["Matte", "Glossy"]}, {}, False, False),
+        ("A3 Matte Poster", "posters", 249, "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=1200&q=80", {"size": ["A4", "A3", "A2"]}, {}, False, False),
+        ("Heavy Canvas Tote", "tote-bags", 349, "https://images.unsplash.com/photo-1591561954557-26941169b49e?w=1200&q=80", {"color": ["Natural", "Black"]}, {}, False, True),
+        ("Snapback Cap", "caps", 449, "https://images.unsplash.com/photo-1521369909029-2afed882baee?w=1200&q=80", {"color": ["Black", "White", "Khaki"]}, {}, False, False),
+        ("Employee Welcome Kit", "corporate-gifts", 1999, "https://images.unsplash.com/photo-1513885535751-8b9238bd345a?w=1200&q=80", {"variant": ["Standard", "Premium"]}, {}, True, False),
+        ("Custom Stainless Tumbler", "corporate-gifts", 899, "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=1200&q=80", {"capacity": ["500ml", "750ml"], "color": ["Silver", "Black"]}, {}, False, False),
     ]
-    for name, cat, price, img, var in products:
+    for name, cat, price, img, var, varimg, bestseller, lowstock in products:
         await db.products.insert_one({
             "id": new_id(),
             "name": name,
@@ -683,13 +943,16 @@ async def seed():
             "base_price": price,
             "image": img,
             "variants": var,
+            "variant_images": varimg,
             "tags": [cat],
             "is_active": True,
+            "is_bestseller": bestseller,
+            "low_stock": lowstock,
+            "watching_count": __import__("random").randint(0, 47),
             "sold_count": __import__("random").randint(20, 400),
             "created_at": now_iso(),
         })
 
-    # Seed reviews
     sample_reviews = [
         ("Priya Sharma", "t-shirts", 5, "Print quality is amazing! The colors are vibrant and the fabric is super soft.", "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400"),
         ("Rohit Kumar", "mugs", 5, "Magic mug works perfectly. Great gift for my wife!", "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=400"),
@@ -706,18 +969,8 @@ async def seed():
                 "image_url": img, "created_at": now_iso(),
             })
 
-    # default settings
     if not await db.settings.find_one({"key": "global"}):
-        await db.settings.insert_one({
-            "key": "global",
-            "razorpay_enabled": True, "stripe_enabled": False, "cod_enabled": True,
-            "ai_model": "gpt-image-1",
-            "seo": {
-                "title": "MerchCraft AI — Custom Merch, Designed by AI",
-                "description": "Design custom T-shirts, mugs, hoodies, and corporate gifts with AI artwork. Made in India.",
-                "keywords": "custom merch india, AI design, corporate gifts, t-shirt printing",
-            },
-        })
+        await db.settings.insert_one(DEFAULT_SETTINGS.copy())
 
     return {"ok": True}
 
@@ -740,12 +993,21 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    # Auto-seed on first boot
     if await db.products.count_documents({}) == 0:
         try:
             await seed()
         except Exception as e:
             logger.exception("Seed failed: %s", e)
+    # Always ensure superadmin exists for upgrades
+    if not await db.users.find_one({"email": "superadmin@merchcraft.in"}):
+        await db.users.insert_one({
+            "id": new_id(),
+            "email": "superadmin@merchcraft.in",
+            "name": "Super Admin",
+            "password_hash": bcrypt.hashpw(b"Super@123", bcrypt.gensalt()).decode(),
+            "role": "superadmin",
+            "created_at": now_iso(),
+        })
 
 
 @app.on_event("shutdown")

@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 4 backend+frontend test of 10 new features (3-role system, CSV import, color variant images, bestseller/low-stock/watching flags, trending+bestseller sections, global search, free-shipping flash banner+progress, COD toggle, admin CRUD). Backend: 23/23 pytest pass (all new feature endpoints verified end-to-end including disabled-category exclusion in trending/bestsellers, super-admin-only /admin/admins guard, CSV ingest with error reporting, free-shipping threshold applied at checkout). Frontend: 8/10 flows pass — color-image swap works (3 colors verified by src change), bestseller+low-stock badges render, admin Admins tab visible for superadmin and absent for admin, new-admin creation modal works, product form shows new bestseller/lowstock/watching/variant-image fields, CSV upload via hidden input succeeds, Settings has free-shipping-threshold-input and toggle-cod_enabled, home renders trending-section + 6 bestseller-card-*. TWO BUGS: (1) Global search navigates to /products?q=hoodie but the Products page IGNORES the q URL param so results are unfiltered (15 cards instead of 2 hoodies). (2) Super-admin Crown icon is rendered but missing data-testid='admin-crown-icon'.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Products page",
+        "issue": "Global search query string ?q=hoodie is NOT read by Products.jsx — local state `q` always starts as '' so API call omits q parameter. /products?q=hoodie returns all 15 products instead of 2 hoodies. The header search box navigates correctly but filter never applies.",
+        "selector": "[data-testid='product-search'] / URL ?q=",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Admin header (Super-admin badge)",
+        "issue": "Crown icon for super-admin is rendered (Admin.jsx line 166) but lacks data-testid='admin-crown-icon'. The review request explicitly checks for this testid. Visually present but not test-addressable.",
+        "selector": "[data-testid='admin-crown-icon']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Console (all pages)",
+        "issues": ["React warning: 'An empty string (\"\") was passed to the src attribute' — some product/category image fields are empty strings in DB. Recommend either skipping <img> when src is '' or use a placeholder."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_features.py",
+    "/app/test_reports/pytest/iter4.xml"
+  ],
+  "action_items": [
+    "FIX Products.jsx: read q from useSearchParams and seed the q state from URL (and write q back into URL on local typing) so the global header search actually filters.",
+    "Add data-testid='admin-crown-icon' to the Crown component in Admin.jsx (line 166) so superadmin-only badge is test-addressable.",
+    "Optional: in product cards/details, guard <img src={p.image}> against empty strings to silence the React warning."
+  ],
+  "critical_code_review_comments": [
+    "/api/products/{id}/flags PATCH is properly guarded by require_admin and rejects empty patch with 400 — good.",
+    "/api/products/bulk-import handles UnicodeDecode fallback (utf-8 → latin-1) and returns structured {created, errors[]} — robust.",
+    "require_superadmin correctly returns 403 (not 401) for admin role on /admin/admins — verified.",
+    "Free-shipping threshold default falls back to ₹999 via DEFAULT_SETTINGS back-fill — legacy installs upgrade cleanly.",
+    "/admin/users now filters role=customer only — admins won't accidentally appear in the customer table. /admin/admins is the superadmin-only sibling endpoint for managing admins.",
+    "S3 upload helper falls back to base64 data URL when env vars missing — current state. Confirmed via storage.upload_to_storage returning None path. AI image gen still works locally without S3.",
+    "Crown icon at Admin.jsx:166 lacks data-testid — minor testability gap.",
+    "Products.jsx doesn't sync q-state with searchParams — breaks global search → product list integration."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_features.py (new — 23 pytest cases covering all new endpoints)"
+  ],
+  "success_rate": { "backend": "100% (23/23 new + 42/42 regression assumed unchanged)", "frontend": "~85% — 2 issues found out of 12 listed flows" },
+  "test_credentials": "superadmin@merchcraft.in / Super@123 • admin@merchcraft.in / Admin@123 • demo@merchcraft.in / Demo@123",
+  "seed_data_creation": "Backend tests create TEST_-prefixed admin accounts, products, and CSV rows then clean them up. Browser test left 1 TEST_CSV_Tee + 1 unnamed CSV product in DB (small leak, harmless).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is 100% green. Two frontend bugs to verify after main agent fixes: (A) Products.jsx must read ?q= and ?category= from URL into local state so the header search filters. Test: navigate to /products?q=hoodie and assert exactly 2 hoodie cards. (B) Add data-testid='admin-crown-icon' on Admin.jsx line 166. The Classic Cotton Tee color swap is fully verified — src changes for Black→White→Navy. Bestseller and low-stock badges visible on product detail. Watching indicator only visible when watching_count>0 (random in seed). CSV bulk-import via hidden input works (used page.set_input_files).",
+  "rca_of_the_issue": {
+    "global_search_not_filtering": "Products.jsx defines `const [q, setQ] = useState('')` but never reads `searchParams.get('q')`. The header global-search-input only does `navigate('/products?q='+v)` — when the page mounts at that URL, q-state is still empty so the GET /api/products call omits the q param. Backend supports q filter correctly (verified via curl). FIX: change to `const [q, setQ] = useState(searchParams.get('q') || '')` and in the typing handler also update the URL via setSearchParams.",
+    "crown_missing_testid": "Admin.jsx renders `<Crown weight='fill' className='text-[#FF3B30]'/>` without data-testid. Trivial 1-line fix."
+  }
+}
