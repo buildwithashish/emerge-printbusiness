@@ -446,7 +446,12 @@ const Admin = () => {
         open={orderModal.open}
         onClose={() => setOrderModal({ open: false, order: null })}
         order={orderModal.order}
-        onChanged={() => { reloadOrders(); setOrderModal({ open: false, order: null }); }}
+        onChanged={async () => {
+          await reloadOrders();
+          // refresh the open modal's order data from latest list (don't close)
+          const fresh = (await api.get("/admin/orders")).data.find(o => o.id === orderModal.order?.id);
+          if (fresh) setOrderModal({ open: true, order: fresh });
+        }}
       />
     </div>
   );
