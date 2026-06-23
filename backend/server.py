@@ -206,12 +206,41 @@ async def list_categories():
     return items
 
 
+@api.get("/admin/categories")
+async def admin_list_categories(_admin=Depends(require_admin)):
+    return await db.categories.find({}, {"_id": 0}).to_list(500)
+
+
 @api.post("/categories")
 async def create_category(body: CategoryIn, _admin=Depends(require_admin)):
     cat = {"id": new_id(), **body.model_dump(), "created_at": now_iso()}
     await db.categories.insert_one(cat)
     cat.pop("_id", None)
     return cat
+
+
+@api.put("/categories/{cid}")
+async def update_category(cid: str, body: CategoryIn, _admin=Depends(require_admin)):
+    res = await db.categories.update_one({"id": cid}, {"$set": body.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not found")
+    return await db.categories.find_one({"id": cid}, {"_id": 0})
+
+
+@api.patch("/categories/{cid}/toggle")
+async def toggle_category(cid: str, _admin=Depends(require_admin)):
+    c = await db.categories.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Not found")
+    new_state = not c.get("is_active", True)
+    await db.categories.update_one({"id": cid}, {"$set": {"is_active": new_state}})
+    return {"id": cid, "is_active": new_state}
+
+
+@api.delete("/categories/{cid}")
+async def delete_category(cid: str, _admin=Depends(require_admin)):
+    await db.categories.delete_one({"id": cid})
+    return {"ok": True}
 
 
 @api.get("/products")
@@ -294,6 +323,18 @@ async def add_to_cart(body: CartItemIn, user: dict = Depends(require_user)):
 @api.delete("/cart/item/{item_id}")
 async def remove_from_cart(item_id: str, user: dict = Depends(require_user)):
     await db.carts.update_one({"user_id": user["id"]}, {"$pull": {"items": {"id": item_id}}})
+    return {"ok": True}
+
+
+@api.put("/cart/item/{item_id}")
+async def update_cart_item(item_id: str, body: Dict[str, Any], user: dict = Depends(require_user)):
+    qty = int(body.get("quantity", 1))
+    if qty < 1:
+        raise HTTPException(400, "Quantity must be ≥ 1")
+    await db.carts.update_one(
+        {"user_id": user["id"], "items.id": item_id},
+        {"$set": {"items.$.quantity": qty}},
+    )
     return {"ok": True}
 
 
@@ -515,7 +556,22 @@ async def admin_overview(_admin=Depends(require_admin)):
 
 @api.get("/admin/orders")
 async def admin_all_orders(_admin=Depends(require_admin)):
-    return await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # enrich with user info
+    for o in orders:
+        u = await db.users.find_one({"id": o.get("user_id")}, {"_id": 0, "password_hash": 0})
+        o["customer"] = {"name": u["name"], "email": u["email"]} if u else None
+    return orders
+
+
+@api.get("/admin/orders/{oid}")
+async def admin_get_order(oid: str, _admin=Depends(require_admin)):
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Not found")
+    u = await db.users.find_one({"id": o.get("user_id")}, {"_id": 0, "password_hash": 0})
+    o["customer"] = u
+    return o
 
 
 @api.put("/admin/orders/{oid}/status")
@@ -524,6 +580,39 @@ async def admin_update_order_status(oid: str, body: Dict[str, str], _admin=Depen
     if status not in {"pending", "paid", "processing", "design_approved", "printing", "packed", "shipped", "delivered", "cancelled", "returned"}:
         raise HTTPException(400, "Invalid status")
     await db.orders.update_one({"id": oid}, {"$set": {"status": status}})
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────
+# Admin: Users
+# ─────────────────────────────────────────────────────────────
+@api.get("/admin/users")
+async def admin_list_users(_admin=Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    # compute order counts
+    for u in users:
+        u["order_count"] = await db.orders.count_documents({"user_id": u["id"]})
+    return users
+
+
+@api.put("/admin/users/{uid}")
+async def admin_update_user(uid: str, body: Dict[str, Any], _admin=Depends(require_admin)):
+    allowed = {k: v for k, v in body.items() if k in {"name", "role"}}
+    if "role" in allowed and allowed["role"] not in {"customer", "admin"}:
+        raise HTTPException(400, "Invalid role")
+    if not allowed:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.users.update_one({"id": uid}, {"$set": allowed})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not found")
+    return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+
+
+@api.delete("/admin/users/{uid}")
+async def admin_delete_user(uid: str, user: dict = Depends(require_admin)):
+    if uid == user["id"]:
+        raise HTTPException(400, "Cannot delete yourself")
+    await db.users.delete_one({"id": uid})
     return {"ok": True}
 
 

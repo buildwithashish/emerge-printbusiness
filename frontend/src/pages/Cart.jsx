@@ -1,12 +1,19 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "@/lib/cart";
 import { useAuth } from "@/lib/auth";
-import { Trash, ArrowRight } from "@phosphor-icons/react";
+import { Trash, ArrowRight, Minus, Plus } from "@phosphor-icons/react";
+import api from "@/lib/api";
 
 const Cart = () => {
-  const { items, removeItem, subtotal } = useCart();
+  const { items, removeItem, subtotal, refresh } = useCart();
   const { user, ready } = useAuth();
   const nav = useNavigate();
+
+  const updateQty = async (itemId, newQty) => {
+    if (newQty < 1) return;
+    await api.put(`/cart/item/${itemId}`, { quantity: newQty });
+    refresh();
+  };
 
   if (!ready) return <div className="max-w-3xl mx-auto px-4 py-20 text-center text-[#52525B]">Loading…</div>;
   if (!user) return (
@@ -32,14 +39,24 @@ const Cart = () => {
                 <img src={it.product?.image} alt={it.product?.name} className="w-24 h-24 object-cover rounded-sm" />
                 <div className="flex-1">
                   <div className="font-semibold">{it.product?.name}</div>
-                  <div className="text-xs text-[#52525B] mt-0.5 uppercase tracking-wider">{Object.entries(it.variants||{}).map(([k,v])=>`${k}:${v}`).join(" · ")}</div>
-                  <div className="text-xs text-[#52525B] mt-0.5">Qty: {it.quantity}</div>
-                  {it.custom_text && <div className="text-xs text-[#52525B] mt-1">Text: "{it.custom_text}"</div>}
+                  <div className="text-xs text-[#52525B] mt-0.5 uppercase tracking-wider">
+                    {Object.entries(it.variants || {}).map(([k, v]) => `${k}:${v}`).join(" · ")}
+                  </div>
+                  {it.custom_text && <div className="text-xs text-[#52525B] mt-1">Text: &ldquo;{it.custom_text}&rdquo;</div>}
                   {it.custom_design_url && <div className="text-xs text-[#52525B] mt-1">+ Custom design</div>}
+                  <div className="mt-3 inline-flex items-center border border-black/15 rounded-sm">
+                    <button onClick={() => updateQty(it.id, it.quantity - 1)} data-testid={`cart-qty-dec-${it.id}`} className="px-2.5 py-1.5 hover:bg-black/5 disabled:opacity-40" disabled={it.quantity <= 1}>
+                      <Minus size={14} weight="bold" />
+                    </button>
+                    <div className="px-4 text-sm font-semibold min-w-[2.5rem] text-center" data-testid={`cart-qty-val-${it.id}`}>{it.quantity}</div>
+                    <button onClick={() => updateQty(it.id, it.quantity + 1)} data-testid={`cart-qty-inc-${it.id}`} className="px-2.5 py-1.5 hover:bg-black/5">
+                      <Plus size={14} weight="bold" />
+                    </button>
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="font-display font-bold">₹{(it.product?.base_price || 0) * it.quantity}</div>
-                  <button onClick={()=>removeItem(it.id)} data-testid={`remove-${it.id}`} className="mt-2 text-xs text-[#FF3B30] hover:underline inline-flex items-center gap-1"><Trash size={14} /> Remove</button>
+                  <button onClick={() => removeItem(it.id)} data-testid={`remove-${it.id}`} className="mt-2 text-xs text-[#FF3B30] hover:underline inline-flex items-center gap-1"><Trash size={14} /> Remove</button>
                 </div>
               </div>
             ))}
@@ -50,7 +67,7 @@ const Cart = () => {
               <div className="flex justify-between text-sm py-2"><span>Subtotal</span><span data-testid="subtotal">₹{subtotal.toFixed(2)}</span></div>
               <div className="flex justify-between text-sm py-2"><span>Shipping</span><span>FREE</span></div>
               <div className="border-t border-black/5 mt-2 pt-3 flex justify-between font-display font-black text-xl"><span>Total</span><span data-testid="total">₹{subtotal.toFixed(2)}</span></div>
-              <button onClick={()=>nav("/checkout")} data-testid="checkout-btn" className="mt-4 w-full inline-flex items-center justify-center gap-2 bg-[#FF3B30] hover:bg-[#D63328] text-white font-semibold px-6 py-3 rounded-sm">Checkout <ArrowRight /></button>
+              <button onClick={() => nav("/checkout")} data-testid="checkout-btn" className="mt-4 w-full inline-flex items-center justify-center gap-2 bg-[#FF3B30] hover:bg-[#D63328] text-white font-semibold px-6 py-3 rounded-sm">Checkout <ArrowRight /></button>
             </div>
           </div>
         </div>

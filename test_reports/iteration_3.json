@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 3 full backend + frontend test of new admin CRUD (products/categories/users/orders) + cart qty update + customer filter/search/sort. Backend: 42/42 pytest pass (29 regression + 13 new). Frontend: ALL critical admin flows pass (7 tabs render; product CRUD with search/filter; category create/edit/toggle/delete; orders detail+status update; users role change & search; settings save). All customer flows pass: cart qty inc/dec via PUT /cart/item/{id}, subtotal recalc, dec disabled at qty=1; products page category/search/sort filters work end-to-end; product detail qty selector + add-to-cart produces single line item with correct qty.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/admin → Orders → OrderDetail modal",
+        "issues": ["After changing order status via order-status-select dropdown, the modal auto-closes (Admin.jsx line 449 explicitly calls setOrderModal({open:false}) inside onChanged). This is intentional but breaks the test step that clicks order-close-btn AFTER status change. UX-wise, user can't review the rest of the order detail after a status change without re-opening — consider keeping the modal open and only refreshing the underlying order data, or showing the toast then auto-closing only on confirm."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_merchcraft.py",
+    "/app/backend/tests/test_new_admin_features.py",
+    "/app/test_reports/pytest/iter3_all.xml",
+    "/app/test_reports/pytest/iter3_new.xml"
+  ],
+  "action_items": [
+    "OPTIONAL UX: In /app/frontend/src/pages/Admin.jsx (line 449), don't auto-close OrderDetail modal on status update — keep it open and just reload order data so user can continue reviewing/editing.",
+    "OPTIONAL: After successful /checkout, redirect to /account or /order/:id (carried over from iter 2)."
+  ],
+  "critical_code_review_comments": [
+    "All new backend endpoints correctly exclude MongoDB _id via projections — verified in /api/admin/users, /api/admin/orders/{id}, /api/admin/categories, PUT /api/categories/{id}.",
+    "PUT /api/cart/item/{id} validates qty>=1 with HTTP 400 — good.",
+    "DELETE /api/admin/users/{id} correctly blocks self-deletion with HTTP 400 'Cannot delete yourself'.",
+    "PUT /api/admin/users/{id} whitelists only name/role fields and validates role∈{customer,admin} — solid input validation.",
+    "/app/frontend/src/pages/Admin.jsx is ~450 lines with 7 tabs + modals — within size limits but at the edge; consider splitting tabs into separate components (AdminProducts.jsx, AdminCategories.jsx, etc) if more features are added.",
+    "All admin interactive elements have data-testid attributes including dynamic ones (edit-product-{id}, delete-category-{id}, user-role-{id}, etc) — excellent testability.",
+    "Cart.jsx dec button correctly uses `disabled={it.quantity <= 1}` preventing qty going below 1 — verified working in Playwright.",
+    "OrderDetail modal auto-close on status change (Admin.jsx:449) is a deliberate but debatable UX choice."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_admin_features.py (new — 12 tests covering cart qty, category CRUD, admin users, admin order detail)"
+  ],
+  "success_rate": { "backend": "100% (42/42)", "frontend": "100% on all listed flows; only the post-status-change close-btn step is unreachable by design" },
+  "test_credentials": "admin@merchcraft.in / Admin@123  •  demo@merchcraft.in / Demo@123",
+  "seed_data_creation": "Used existing seed data. Test artifacts (TEST_ prefixed products/categories/users) were created and cleaned up within each Playwright run and pytest test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All admin CRUD endpoints are now live and tested: products (POST/PUT/DELETE), categories (POST/PUT/PATCH toggle/DELETE), users (GET/PUT/DELETE — self-delete blocked), order detail GET, cart-item PUT for qty. Use test_new_admin_features.py as regression. Reported customer filter/search/sort bug from user is NOT reproducible — Products.jsx + GET /api/products?category=&q=&sort= work correctly (verified mugs→2 cards, 'tee'→3 cards, price_asc sorted). User report likely a perception issue. Only quibble is OrderDetail modal auto-closing after status change (Admin.jsx:449) — by design but UX-suspect.",
+  "rca_of_the_issue": {
+    "user_reported_customer_filter_bug": "NOT A BUG. Verified via Playwright: cat-filter-mugs filters from 14→2 products; cat-filter-all resets to 14; product-search='tee' filters to 3 t-shirt products; sort-select=price_asc orders products ascending ([249,299,349,399,399]). Frontend Products.jsx correctly passes params to /api/products and re-fetches on change.",
+    "admin_crud_missing": "RESOLVED. Full CRUD implemented for products/categories/users with modals + confirmations. All 12 new backend endpoint tests pass + all Playwright flows pass.",
+    "order_modal_close_after_status_change": "BY DESIGN (Admin.jsx line 449 sets {open:false, order:null} inside onChanged). Not a bug per se, but breaks expectation that 'Close' button is reachable AFTER a status change. Recommend keeping modal open and just calling reloadOrders()."
+  }
+}
