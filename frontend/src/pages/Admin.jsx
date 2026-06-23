@@ -276,7 +276,9 @@ const Admin = () => {
             </div>
             <div className="flex gap-2">
               <input ref={csvInput} type="file" accept=".csv" onChange={uploadCSV} className="hidden" data-testid="csv-upload-input" />
+              <GhostBtn onClick={downloadSampleCSV} data-testid="download-sample-csv-btn"><span className="inline-flex items-center gap-2"><Download weight="bold" /> Sample CSV</span></GhostBtn>
               <GhostBtn onClick={() => csvInput.current?.click()} data-testid="csv-upload-btn"><span className="inline-flex items-center gap-2"><Upload weight="bold" /> Bulk CSV Import</span></GhostBtn>
+              <GhostBtn onClick={runAutoBestseller} data-testid="run-auto-bestseller-btn"><span className="inline-flex items-center gap-2"><Fire weight="bold" /> Auto-mark Bestsellers</span></GhostBtn>
               <PrimaryBtn onClick={() => setProductModal({ open: true, product: null })} data-testid="admin-new-product-btn"><span className="inline-flex items-center gap-2"><Plus weight="bold" /> New Product</span></PrimaryBtn>
             </div>
           </div>

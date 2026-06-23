@@ -267,17 +267,20 @@ async def job_auto_bestseller():
         {"$set": {"is_bestseller": True, "auto_marked_bestseller_at": now_iso()}}
     )
     logger.info("[scheduler] auto-bestseller promoted %d products (threshold %d)", promoted.modified_count, threshold)
-    # Alert: bestsellers with low_stock
+    # Alert (deduplicated): bestsellers with low_stock
     low_count = await db.products.count_documents({"is_bestseller": True, "low_stock": True, "is_active": True})
     if low_count > 0:
-        await db.admin_alerts.insert_one({
-            "id": new_id(),
-            "type": "bestseller_low_stock",
-            "message": f"{low_count} bestseller(s) marked as 'Few units left'. Restock recommended.",
-            "count": low_count,
-            "created_at": now_iso(),
-            "read": False,
-        })
+        # Skip if same unread alert already exists
+        existing = await db.admin_alerts.find_one({"type": "bestseller_low_stock", "read": False, "count": low_count})
+        if not existing:
+            await db.admin_alerts.insert_one({
+                "id": new_id(),
+                "type": "bestseller_low_stock",
+                "message": f"{low_count} bestseller(s) marked as 'Few units left'. Restock recommended.",
+                "count": low_count,
+                "created_at": now_iso(),
+                "read": False,
+            })
 
 
 async def reschedule_status_job(hour: int):

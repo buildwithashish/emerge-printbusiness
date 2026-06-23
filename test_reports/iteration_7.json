@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 7 frontend retest of 3 fixes (download-sample-csv-btn, run-auto-bestseller-btn, alert dedup). All 3 fixes verified PASSING. Admin login → Products tab → both buttons render and are functional. /api/products/sample-csv returns 200 (text/csv, 626 bytes). Clicking run-auto-bestseller-btn shows 'Auto-bestseller rule executed' toast and admin-alerts-strip displays bestseller_low_stock alert on overview tab. After 2 consecutive clicks, only 1 unread alert exists (same id 0742087e-… returned both times) — dedup confirmed at backend.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter6_features.py"],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": { "backend": "skipped (per request)", "frontend": "100% (3/3 fixes verified)" },
+  "test_credentials": "Admin: admin@merchcraft.in / Admin@123",
+  "seed_data_creation": "None. Existing seed data used. Auto-bestseller rule generated 1 unread alert (bestseller_low_stock, count=2) which remains in DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iter6/iter7 admin fixes are stable. download-sample-csv-btn, csv-upload-btn, run-auto-bestseller-btn all present in Admin Products toolbar (Admin.jsx 279-281). Backend job_auto_bestseller dedup logic working — repeat invocations update the existing unread alert instead of creating duplicates. Token key in localStorage is 'mc_token'.",
+  "evidence": {
+    "fix1": { "btn_exists": true, "GET /api/products/sample-csv": { "status": 200, "content_type": "text/plain; charset=utf-8", "len": 626 } },
+    "fix2": { "btn_exists": true, "toast": "Auto-bestseller rule executed", "admin-alerts-strip_visible": true, "alert_text": "2 bestseller(s) marked as 'Few units left'. Restock recommended." },
+    "fix3": { "clicks": 2, "unread_bestseller_alerts_after": 1, "same_alert_id_returned": true }
+  }
+}
