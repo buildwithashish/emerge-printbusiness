@@ -1,62 +1,68 @@
 # MerchCraft AI — Open TODO List
 
----
-
-## 🔥 P0 — Production must-have (before going live)
-- [ ] **Wire live Razorpay** — `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` in `backend/.env`; add HMAC signature verification in `/api/orders/{id}/verify-payment`.
-- [ ] **S3 storage credentials** — code is ready, just set `S3_ENDPOINT_URL / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET / S3_PUBLIC_BASE` in `backend/.env`. Without them the AI artwork falls back to base64 data-URLs in MongoDB (works but bloats DB).
-- [ ] **OTP login** — Email OTP + Mobile OTP (MSG91) + Google login.
-- [ ] **Razorpay webhook** for async `payment.captured` events.
-- [ ] **Order confirmation page** after checkout (currently redirects to `/account`).
-- [ ] **Next.js SSR port** for true SEO (Lighthouse > 90 on product pages).
-- [ ] **Guard `<img src="">`** — silence the React empty-string warning by skipping the img or using a placeholder.
+## 🔥 P0 — Production must-have
+- [ ] **Razorpay**: keys + HMAC signature verify + webhook
+- [ ] **S3 storage** for AI artwork (env vars already wired; drop in credentials to activate)
+- [ ] **Real notification senders** — currently MOCKED (logged to `notifications_log`). Swap in:
+  - SMS: Twilio / MSG91
+  - WhatsApp: Twilio WhatsApp Business / Gupshup
+  - Email: SendGrid / Brevo / Resend
+  - 1-line change inside `_log_notification` per channel
+- [ ] **Remove `dev_code` from `/auth/send-otp` response** before going live (currently exposed for dev convenience)
+- [ ] **Order confirmation page** after checkout
+- [ ] **Next.js SSR port** for true SEO
 
 ## 🚀 P1 — Growth & differentiation
-- [ ] **Canva-style full editor** (drag/resize/rotate/layers/shapes/text/bg-removal).
-- [ ] **Shiprocket** integration — auto-label, tracking webhook, status reflects in order machine.
-- [ ] **WhatsApp Business + Brevo + MSG91** — order updates, abandoned-cart drip, share-to-WhatsApp on AI artwork.
-- [ ] **Loyalty + referral program** — coins + ₹100 refer-a-friend.
-- [ ] **Coupons + gift cards + corporate pricing tiers**.
-- [ ] **Analytics stack** — GA4, Meta Pixel, Microsoft Clarity, Search Console, server-side conversions.
-- [ ] **Corporate dashboard** — RFQ timeline, invoices, PO terms, approval workflow.
+- [ ] Canva-style full editor
+- [ ] Shiprocket auto-label + tracking webhook
+- [ ] Loyalty + referral program
+- [ ] Coupons + gift cards + corporate pricing tiers
+- [ ] GA4 / Meta Pixel / Clarity / Search Console
+- [ ] Corporate dashboard (RFQ timeline, invoices, approvals)
 
 ## 💎 P2 — Polish / scale
-- [ ] Recommendation engine — "similar", "frequently bought together", "trending in your city".
-- [ ] Multi-language (Hindi + regional via i18next).
-- [ ] Multi-currency for global expansion (Stripe + currency switcher).
-- [ ] Audit logs + RBAC granularity (per-resource permissions).
-- [ ] GDPR / DPDP export-or-delete-my-data tools.
-- [ ] A/B testing infrastructure (PostHog or Statsig).
-- [ ] CI/CD + Docker Compose / K8s manifests.
-- [ ] Wishlist / save-for-later.
-- [ ] Verified-buyer badge + photo moderation flow.
+- [ ] Recommendations engine
+- [ ] Multi-language (Hindi + regional)
+- [ ] Multi-currency
+- [ ] Audit logs + DPDP/GDPR export-or-delete
+- [ ] A/B testing infrastructure
+- [ ] Docker Compose + K8s manifests
+- [ ] Wishlist / save-for-later
+- [ ] Split Admin.jsx (685 lines) into per-tab components
+- [ ] Guard empty-string `<img src="">` to silence React warnings
 
 ## ✅ Done
 
-### Feb 19, 2026
-- Storefront, catalog, AI Design Studio, Cart, COD checkout, Razorpay scaffold
-- JWT auth (admin + customer), Customer dashboard
-- Corporate RFQ portal + admin RFQ inbox
-- Admin console (5 tabs)
-- Design system, backend tests 30/30
+### Feb 19, 2026 — MVP
+Storefront, AI Studio, Cart, COD checkout, JWT auth, Customer dashboard, Corporate RFQ, Admin v1
 
-### Feb 22, 2026 — Admin CRUD + cart qty
-- Backend: cart-item qty, category CRUD + toggle, users + role, order detail endpoints
-- Admin: Products/Categories/Users CRUD modals, Order detail modal
+### Feb 22, 2026 — Admin CRUD pack
+Backend CRUD + admin Products/Categories/Users/Orders modals, cart qty inline
 
-### Feb 23, 2026 — Feature pack (this iteration)
-- ✅ **3-role system** — Customer / Admin / **SuperAdmin** (Crown badge)
-- ✅ **Admins tab** (superadmin-only) — create / delete admin accounts
-- ✅ Customers tab — filtered to role=customer only (no admin leakage)
-- ✅ **CSV bulk import** of products with `variants_*` and `|`-separated values
-- ✅ **Color-specific images** — variant_images.color, auto-swaps on color pick
-- ✅ **Bestseller / Few-units-left** toggles per product (1-click buttons + checkboxes in form)
-- ✅ **Trending strip** on home — top sold from active categories only
-- ✅ **Bestseller grid** on home — admin-flagged products from active categories
-- ✅ **Live watching count** — admin sets `watching_count`, customer sees "X viewing now"
-- ✅ **Free-shipping threshold** — admin-configurable; top banner + cart progress bar; checkout applies ₹49 shipping if subtotal < threshold
-- ✅ **COD toggle** in admin settings (was already present, now visible & checked in checkout)
-- ✅ **Global search bar** in header (desktop + mobile) — deep-links to `/products?q=`
-- ✅ **S3 storage helper** with base64 fallback (drop S3 env vars to activate)
-- ✅ Bestsellers/Trending automatically exclude products from disabled categories
-- ✅ Backend 65/65 tests pass; frontend 100% on all 10 features
+### Feb 23, 2026 — Feature pack 1
+3-role (Customer/Admin/SuperAdmin), Admins tab, CSV bulk import, color-image swap, bestseller/low-stock badges, trending strip, watching count, free-shipping threshold flash card, global search bar, S3 storage helper (with base64 fallback)
+
+### Feb 24, 2026 — Feature pack 2 (this iteration)
+- ✅ **Guest checkout** + phone OTP (3-step: details → OTP → payment)
+- ✅ Cart works for guests (localStorage) and merges into server cart on login
+- ✅ **Optional registration** at checkout — guest order creates user with temp password, emailed
+- ✅ Corporate orders still require login
+- ✅ **Verified-customer model** — `phone_verified`, `email_verified`, `marketing_opt_in`, `is_guest` columns
+- ✅ Admin Customers tab shows verification badges + 1-click **Send Verification** buttons (SMS / Email)
+- ✅ **Order notifications** — Email + SMS + WhatsApp on order placed (channel routing respects verification)
+- ✅ **APScheduler** — daily-status-change job (hour configurable), auto-bestseller job at 02:00
+- ✅ **Manual order notify** endpoint `/admin/orders/{id}/notify` with channel chooser
+- ✅ **Broadcast** to all customers with channel-by-verification routing (opted-out registered users skipped; guests always notified)
+- ✅ **Customizable templates** for order_placed / status_change / guest_welcome / broadcast / otp (live editor in Admin → Notifications)
+- ✅ **Notifications log** tab — every send (real or mocked) captured + searchable
+- ✅ **Auto-bestseller cron** — products with sold_count ≥ threshold (default 200) in active categories get auto-marked
+- ✅ **Bestseller low-stock alert** — admin overview shows dismissible strip; deduped per alert
+- ✅ **Sample CSV download** button on Products tab
+- ✅ **"Add color" button** in ProductForm — prompts for new color + creates row for image
+- ✅ **Dynamic hero** — replaces "Classic Cotton Tee" hardcode with the top-ranked seeded bestseller
+- ✅ **Corporate kits** info gallery (Standard / Premium / Elite + Customize tile), kit picker drives RFQ form
+
+### Test results
+- Backend: 100% (19/19 new + all prior tests pass)
+- Frontend: 100% on all 9 features after 2 retest cycles (3 minor bugs found + fixed mid-iteration)
+- Scheduler running: daily-status @ configurable hour, auto-bestseller @ 02:00
