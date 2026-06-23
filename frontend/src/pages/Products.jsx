@@ -7,9 +7,24 @@ const Products = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
   const [cats, setCats] = useState([]);
-  const [q, setQ] = useState("");
-  const [sort, setSort] = useState("trending");
   const category = searchParams.get("category") || "";
+  const urlQ = searchParams.get("q") || "";
+  const [q, setQ] = useState(urlQ);
+  const [sort, setSort] = useState("trending");
+
+  // keep local q in sync with URL when navigating from header global search
+  useEffect(() => { setQ(urlQ); }, [urlQ]);
+
+  // debounce typing → URL (so deep-linking + sharing works)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = new URLSearchParams(searchParams);
+      if (q) next.set("q", q); else next.delete("q");
+      if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   useEffect(() => { api.get("/categories").then(r => setCats(r.data)); }, []);
   useEffect(() => {

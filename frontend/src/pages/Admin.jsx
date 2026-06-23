@@ -163,7 +163,7 @@ const Admin = () => {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <span className="text-xs uppercase tracking-[0.2em] font-bold text-[#52525B] inline-flex items-center gap-2">
-            {isSuperAdmin && <Crown weight="fill" className="text-[#FF3B30]" />}
+            {isSuperAdmin && <Crown weight="fill" className="text-[#FF3B30]" data-testid="admin-crown-icon" />}
             {isSuperAdmin ? "Super Admin Console" : "Admin Console"}
           </span>
           <h1 className="font-display text-4xl sm:text-5xl font-black tracking-tighter mt-1">Operations</h1>
