@@ -43,7 +43,6 @@ const ProductDetail = () => {
   };
 
   const handleAdd = async () => {
-    if (!user) { toast.info("Login first to add to cart"); nav("/auth"); return; }
     await addToCart({
       product_id: p.id,
       quantity: qty,
@@ -51,7 +50,7 @@ const ProductDetail = () => {
       custom_design_url: designUrl || null,
       custom_text: text || null,
     });
-    toast.success("Added to cart");
+    toast.success(user ? "Added to cart" : "Added to cart (guest)");
   };
 
   if (!p) return <div className="max-w-7xl mx-auto px-4 py-16 text-center text-[#52525B]">Loading…</div>;

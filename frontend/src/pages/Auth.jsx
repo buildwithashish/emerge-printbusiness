@@ -8,6 +8,8 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [loading, setLoading] = useState(false);
   const { login, register } = useAuth();
   const nav = useNavigate();
@@ -17,7 +19,7 @@ const Auth = () => {
     setLoading(true);
     try {
       if (mode === "login") await login(email, password);
-      else await register(email, password, name);
+      else await register(email, password, name, phone, marketingOptIn);
       toast.success(mode === "login" ? "Welcome back!" : "Account created");
       nav("/");
     } catch (err) {
@@ -38,6 +40,12 @@ const Auth = () => {
             <input value={name} onChange={e=>setName(e.target.value)} required data-testid="auth-name" className="w-full px-3 py-2.5 text-sm border border-black/10 rounded-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF3B30]" />
           </div>
         )}
+        {mode === "register" && (
+          <div>
+            <label className="text-xs uppercase tracking-[0.2em] font-bold mb-1.5 block">Phone (optional, for order updates)</label>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+91…" data-testid="auth-phone" className="w-full px-3 py-2.5 text-sm border border-black/10 rounded-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF3B30]" />
+          </div>
+        )}
         <div>
           <label className="text-xs uppercase tracking-[0.2em] font-bold mb-1.5 block">Email</label>
           <input type="email" value={email} onChange={e=>setEmail(e.target.value)} required data-testid="auth-email" className="w-full px-3 py-2.5 text-sm border border-black/10 rounded-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF3B30]" />
@@ -49,6 +57,12 @@ const Auth = () => {
         <button type="submit" disabled={loading} data-testid="auth-submit" className="w-full bg-[#FF3B30] hover:bg-[#D63328] disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-sm">
           {loading ? "Please wait…" : (mode === 'login' ? 'Login' : 'Create Account')}
         </button>
+        {mode === "register" && (
+          <label className="flex items-center gap-2 text-sm pt-2">
+            <input type="checkbox" checked={marketingOptIn} onChange={e=>setMarketingOptIn(e.target.checked)} data-testid="auth-marketing-optin" />
+            Send me offers and new-product updates
+          </label>
+        )}
         <button type="button" onClick={()=>setMode(mode==='login'?'register':'login')} data-testid="auth-switch" className="w-full text-sm text-[#52525B] hover:text-[#0A0A0A]">
           {mode === 'login' ? "Don't have an account? Register" : "Already have an account? Login"}
         </button>

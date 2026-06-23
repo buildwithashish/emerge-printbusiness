@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 6 end-to-end test of the 9 new features (OTP/guest checkout/broadcast/templates/auto-bestseller/admin alerts/sample-csv/corporate kits/dynamic hero/add-color). Backend: 19/19 pytest assertions PASSED (test_iter6_features.py) — OTP send+verify, guest checkout with order+user+generated_password creation, sample CSV download with attachment header, /corporate/kits returning 3 kits + customizable flag, /admin/broadcast counts, /admin/alerts, /admin/run-auto-bestseller, /admin/notifications-log persistence, /settings template save+persist. Frontend: Dynamic hero shows Zip-Up Hoodie (real seeded bestseller) ✓. Guest add-to-cart works without login redirect ✓. Full 3-step guest checkout completed (details → OTP via Dev OTP hint → COD pay) and produced 'Order placed!' toast ✓. Corporate page shows kits-gallery with 3 kit-cards + kit-card-custom, premium select adds SELECTED badge, rfq-selected-kit reflects choice, 'Login required' text present ✓. Admin Notifications tab fully wired (notifications-log-card, template-order_placed_email + tpl-*-body, save-templates-btn, broadcast subject/body/channels, send-broadcast-btn) ✓. admin-alerts-strip shows 'bestseller(s) marked as Few units left' alerts with Dismiss button ✓. Customers tab has Verified column (email/phone badges) + Type column (GUEST/REGISTERED) + 14 verify-sms/verify-email buttons ✓. add-color-btn exists on ProductForm ✓. CRITICAL BUG: Products tab is MISSING the download-sample-csv-btn and run-auto-bestseller-btn — the JS handlers `downloadSampleCSV` and `runAutoBestseller` are defined in Admin.jsx (lines 121-132) but never bound to any rendered button. Backend endpoints work; only the UI buttons are missing.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Admin Products tab", "issue": "download-sample-csv-btn is missing — handler downloadSampleCSV() defined at Admin.jsx:129 but no button renders it", "selector": "[data-testid=\"download-sample-csv-btn\"]", "priority": "HIGH"},
+      {"component": "Admin Products tab", "issue": "run-auto-bestseller-btn is missing — handler runAutoBestseller() defined at Admin.jsx:121 but no button renders it", "selector": "[data-testid=\"run-auto-bestseller-btn\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin alerts strip", "issues": ["Alert message appears duplicated in strip text (same 'X bestseller(s) marked as Few units left' line shown twice). Worth checking the alerts list for duplicate entries from repeated /admin/run-auto-bestseller calls."]},
+      {"screen": "All pages (carried over from iter 5)", "issues": ["React warning: empty string passed to <img> src on some product/category cards. Non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_features.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [
+    "Add the missing <button data-testid=\"download-sample-csv-btn\" onClick={downloadSampleCSV}> and <button data-testid=\"run-auto-bestseller-btn\" onClick={runAutoBestseller}> inside the Products tab toolbar in Admin.jsx (near csv-upload-btn at line ~279).",
+    "Consider de-duplicating admin alerts so re-running auto-bestseller does not create repeat entries with identical messages.",
+    "Optionally: guard <img src={x || undefined}> to silence the React empty-src warning."
+  ],
+  "critical_code_review_comments": [
+    "Admin.jsx defines runAutoBestseller and downloadSampleCSV functions but never invokes them from any onClick — dead code paths leading to a missing-feature bug.",
+    "/api/checkout/guest correctly creates a user with phone_verified=true, generates a temp password, and logs guest_welcome_email — clean implementation.",
+    "/api/admin/broadcast respects marketing_opt_in for registered users and email_verified for email channel, phone_verified for sms — sensible defaults.",
+    "OTP endpoint returning dev_code in the response is intentional for dev mode but MUST be removed/guarded behind ENV flag before production deploy.",
+    "Admin.jsx is 685 lines — recommend splitting per tab (Products/Customers/Notifications/Settings) into separate components for maintainability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_features.py (created)"
+  ],
+  "success_rate": { "backend": "100% (19/19)", "frontend": "~85% — 2 missing UI buttons on Admin Products tab" },
+  "test_credentials": "admin@merchcraft.in / Admin@123 • demo@merchcraft.in / Demo@123 • superadmin@merchcraft.in / Super@123",
+  "seed_data_creation": "Created several TEST_-prefixed guest orders + users during checkout flow tests (visible in Customers tab: frontend_test@, test_guest_*, test_log_*, johnguest@). Templates were briefly modified with a TEST_MARKER and then restored.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 9 new backend features work via API. Only frontend gap is two missing buttons on the Admin → Products tab (downloadSampleCSV + runAutoBestseller handlers exist but no <button> elements). After main agent wires them up, re-run the Products tab portion only. Logged-in customer skip-OTP flow was NOT browser-tested (out of time budget) but the backend logic _has_verified_phone() exists and is exercised by the regular /checkout endpoint.",
+  "rca_of_the_issue": "Admin.jsx contains complete handler logic (lines 121-132) for both Auto-Bestseller and Sample CSV but the Products tab JSX (around line 270-290) only renders csv-upload-btn (bulk import) and never adds the corresponding <GhostBtn data-testid='download-sample-csv-btn' onClick={downloadSampleCSV}> and <GhostBtn data-testid='run-auto-bestseller-btn' onClick={runAutoBestseller}>. Fix is a 2-line JSX addition."
+}

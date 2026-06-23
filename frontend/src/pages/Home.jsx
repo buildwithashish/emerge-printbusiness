@@ -63,18 +63,26 @@ const Home = () => {
             </div>
           </div>
           <div className="lg:col-span-5">
-            <div className="relative aspect-[4/5] rounded-sm overflow-hidden bg-[#F4F4F5] fade-up">
-              <img src="https://images.pexels.com/photos/12025472/pexels-photo-12025472.jpeg?auto=compress&cs=tinysrgb&w=940" alt="Premium tee" className="w-full h-full object-cover" />
-              <div className="absolute top-4 left-4 bg-white/95 backdrop-blur px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider">Bestseller</div>
-              <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur p-4 rounded-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-display font-bold text-lg">Classic Cotton Tee</div>
-                    <div className="text-xs text-[#52525B]">Print + ship in 3 days</div>
+            <div className="relative aspect-[4/5] rounded-sm overflow-hidden bg-[#F4F4F5] fade-up" data-testid="dynamic-hero-card">
+              {bestsellers[0] ? (
+                <Link to={`/products/${bestsellers[0].id}`} className="block w-full h-full group">
+                  <img src={bestsellers[0].image} alt={bestsellers[0].name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <div className="absolute top-4 left-4 inline-flex items-center gap-1.5 bg-white/95 backdrop-blur px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider">
+                    <Fire weight="fill" size={12} className="text-[#FF3B30]" /> #1 Bestseller
                   </div>
-                  <div className="text-2xl font-display font-black">₹499</div>
-                </div>
-              </div>
+                  <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur p-4 rounded-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-display font-bold text-lg truncate" data-testid="hero-product-name">{bestsellers[0].name}</div>
+                        <div className="text-xs text-[#52525B]">Print + ship in 3 days</div>
+                      </div>
+                      <div className="text-2xl font-display font-black shrink-0" data-testid="hero-product-price">₹{bestsellers[0].base_price}</div>
+                    </div>
+                  </div>
+                </Link>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[#52525B] text-sm">Loading bestsellers…</div>
+              )}
             </div>
           </div>
         </div>

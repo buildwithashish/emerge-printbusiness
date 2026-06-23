@@ -113,7 +113,36 @@ const ProductForm = ({ open, onClose, product, categories, onSaved }) => {
         {/* Per-color images */}
         {colors.length > 0 && (
           <div className="border border-black/10 rounded-sm p-4 bg-black/[0.02]" data-testid="variant-images-section">
-            <div className="text-xs uppercase tracking-[0.2em] font-bold mb-3">Color-specific images</div>
+            <div className="text-xs uppercase tracking-[0.2em] font-bold mb-3 flex items-center justify-between">
+              <span>Color-specific images</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const name = window.prompt("New color name (e.g., Maroon, Lavender)?");
+                  if (!name) return;
+                  const trimmed = name.trim();
+                  if (!trimmed) return;
+                  if (colors.includes(trimmed)) { toast.info("Color already exists"); return; }
+                  const newColors = [...colors, trimmed].join(", ");
+                  const others = variantsText
+                    .split("\n")
+                    .filter(l => !l.toLowerCase().startsWith("color:"))
+                    .join("\n");
+                  setVariantsText(others ? `${others}\ncolor: ${newColors}` : `color: ${newColors}`);
+                  setForm(f => ({
+                    ...f,
+                    variant_images: {
+                      ...f.variant_images,
+                      color: { ...(f.variant_images?.color || {}), [trimmed]: "" },
+                    },
+                  }));
+                }}
+                data-testid="add-color-btn"
+                className="text-[10px] font-bold uppercase tracking-wider bg-[#FF3B30] text-white px-3 py-1.5 rounded-sm hover:bg-[#D63328] inline-flex items-center gap-1 normal-case"
+              >
+                + Add Color
+              </button>
+            </div>
             <div className="space-y-2">
               {colors.map(color => (
                 <div key={color} className="flex items-center gap-3">

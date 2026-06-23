@@ -6,26 +6,15 @@ import { Trash, ArrowRight, Minus, Plus, Truck } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
 const Cart = () => {
-  const { items, removeItem, subtotal, refresh } = useCart();
+  const { items, removeItem, updateQty, subtotal } = useCart();
   const { user, ready } = useAuth();
   const nav = useNavigate();
   const [threshold, setThreshold] = useState(999);
 
   useEffect(() => { api.get("/settings").then(r => setThreshold(r.data.free_shipping_threshold || 999)).catch(()=>{}); }, []);
 
-  const updateQty = async (itemId, newQty) => {
-    if (newQty < 1) return;
-    await api.put(`/cart/item/${itemId}`, { quantity: newQty });
-    refresh();
-  };
-
   if (!ready) return <div className="max-w-3xl mx-auto px-4 py-20 text-center text-[#52525B]">Loading…</div>;
-  if (!user) return (
-    <div className="max-w-3xl mx-auto px-4 py-20 text-center" data-testid="cart-login-prompt">
-      <h1 className="font-display text-3xl font-black mb-3">Login to view your cart</h1>
-      <Link to="/auth" className="inline-flex items-center gap-2 bg-[#FF3B30] hover:bg-[#D63328] text-white font-semibold px-6 py-3 rounded-sm">Login / Register <ArrowRight /></Link>
-    </div>
-  );
+  // Cart works for both guests and logged-in users now — no login wall.
 
   const remaining = Math.max(0, threshold - subtotal);
   const progressPct = Math.min(100, (subtotal / threshold) * 100);

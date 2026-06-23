@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { Pencil, Trash, Plus, Eye, Power, MagnifyingGlass, Upload, Fire, Warning, Crown } from "@phosphor-icons/react";
+import { Pencil, Trash, Plus, Eye, Power, MagnifyingGlass, Upload, Fire, Warning, Crown, Download, BellRinging, EnvelopeSimple, ChatCircleText, WhatsappLogo, CheckCircle, X as XIcon } from "@phosphor-icons/react";
 import ProductForm from "@/components/admin/ProductForm";
 import CategoryForm from "@/components/admin/CategoryForm";
 import OrderDetail from "@/components/admin/OrderDetail";
@@ -16,6 +16,7 @@ const BASE_TABS = [
   { id: "categories", label: "Categories" },
   { id: "orders", label: "Orders" },
   { id: "users", label: "Customers" },
+  { id: "notifications", label: "Notifications" },
   { id: "rfqs", label: "Corporate RFQs" },
   { id: "settings", label: "Settings" },
 ];
@@ -46,6 +47,9 @@ const Admin = () => {
   const [admins, setAdmins] = useState([]);
   const [rfqs, setRfqs] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [notifLog, setNotifLog] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [broadcastForm, setBroadcastForm] = useState({ subject: "", body: "", channels: ["email", "sms", "whatsapp"] });
 
   const [prodSearch, setProdSearch] = useState("");
   const [prodCatFilter, setProdCatFilter] = useState("");
@@ -78,14 +82,16 @@ const Admin = () => {
       api.get("/admin/users"),
       api.get("/corporate/rfq"),
       api.get("/settings"),
+      api.get("/admin/notifications-log?limit=100"),
+      api.get("/admin/alerts"),
     ];
     if (isSuperAdmin) promises.push(api.get("/admin/admins"));
     const results = await Promise.all(promises);
     setOverview(results[0].data); setOrders(results[1].data);
     setProducts(results[2].data); setCategories(results[3].data);
     setUsers(results[4].data); setRfqs(results[5].data);
-    setSettings(results[6].data);
-    if (isSuperAdmin) setAdmins(results[7].data);
+    setSettings(results[6].data); setNotifLog(results[7].data); setAlerts(results[8].data);
+    if (isSuperAdmin) setAdmins(results[9].data);
   };
 
   const reloadProducts = async () => setProducts((await api.get("/products?limit=500")).data);
@@ -93,6 +99,37 @@ const Admin = () => {
   const reloadOrders = async () => setOrders((await api.get("/admin/orders")).data);
   const reloadUsers = async () => setUsers((await api.get("/admin/users")).data);
   const reloadAdmins = async () => setAdmins((await api.get("/admin/admins")).data);
+  const reloadNotifLog = async () => setNotifLog((await api.get("/admin/notifications-log?limit=100")).data);
+
+  const triggerVerification = async (u, channel) => {
+    try {
+      const { data } = await api.post(`/admin/users/${u.id}/trigger-verification`, { channel });
+      toast.success(`${channel === 'email' ? 'Email' : 'SMS'} OTP sent${data.dev_code ? ` (dev: ${data.dev_code})` : ''}`, { duration: 6000 });
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+  };
+
+  const sendBroadcast = async () => {
+    if (!broadcastForm.body) { toast.error("Message body required"); return; }
+    try {
+      const { data } = await api.post("/admin/broadcast", broadcastForm);
+      toast.success(`Sent · email:${data.counts.email} sms:${data.counts.sms} whatsapp:${data.counts.whatsapp}`, { duration: 6000 });
+      setBroadcastForm({ subject: "", body: "", channels: ["email", "sms", "whatsapp"] });
+      reloadNotifLog();
+    } catch (e) { toast.error(e.response?.data?.detail || "Broadcast failed"); }
+  };
+
+  const runAutoBestseller = async () => {
+    try {
+      await api.post("/admin/run-auto-bestseller");
+      toast.success("Auto-bestseller rule executed");
+      reloadProducts();
+    } catch (e) { toast.error("Failed"); }
+  };
+
+  const downloadSampleCSV = () => {
+    const url = `${process.env.REACT_APP_BACKEND_URL}/api/products/sample-csv`;
+    window.open(url, "_blank");
+  };
 
   const deleteProduct = async (p) => {
     if (!window.confirm(`Delete "${p.name}"?`)) return;
@@ -182,6 +219,17 @@ const Admin = () => {
       {/* OVERVIEW */}
       {tab === "overview" && overview && (
         <div data-testid="admin-overview">
+          {alerts.filter(a => !a.read).length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-sm p-4 mb-6" data-testid="admin-alerts-strip">
+              <div className="text-xs uppercase tracking-[0.2em] font-bold text-amber-900 mb-2 inline-flex items-center gap-2"><Warning weight="fill" /> Alerts</div>
+              {alerts.filter(a => !a.read).slice(0, 3).map(a => (
+                <div key={a.id} className="flex items-center justify-between py-1.5 text-sm">
+                  <span data-testid={`alert-${a.id}`}>{a.message}</span>
+                  <button onClick={async () => { await api.patch(`/admin/alerts/${a.id}/read`); setAlerts(alerts.filter(x => x.id !== a.id)); }} className="text-xs text-amber-900 hover:underline" data-testid={`alert-dismiss-${a.id}`}>Dismiss</button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
             {[
               ["Revenue", `₹${overview.revenue?.toFixed(0)}`],
@@ -371,7 +419,9 @@ const Admin = () => {
               <thead className="bg-black/5">
                 <tr className="text-left">
                   <th className="px-4 py-3 text-xs uppercase tracking-wider font-bold">Name</th>
-                  <th className="px-4 py-3 text-xs uppercase tracking-wider font-bold">Email</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-wider font-bold">Contact</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-wider font-bold">Verified</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-wider font-bold">Type</th>
                   <th className="px-4 py-3 text-xs uppercase tracking-wider font-bold">Orders</th>
                   <th className="px-4 py-3 text-xs uppercase tracking-wider font-bold">Joined</th>
                   <th className="px-4 py-3"></th>
@@ -381,13 +431,34 @@ const Admin = () => {
                 {filteredUsers.map(u => (
                   <tr key={u.id} className="border-t border-black/5 hover:bg-black/[0.02]" data-testid={`admin-user-row-${u.id}`}>
                     <td className="px-4 py-3 font-semibold">{u.name}</td>
-                    <td className="px-4 py-3 text-[#52525B]">{u.email}</td>
+                    <td className="px-4 py-3 text-[#52525B]"><div>{u.email}</div>{u.phone && <div className="text-xs">{u.phone}</div>}</td>
+                    <td className="px-4 py-3" data-testid={`user-verify-${u.id}`}>
+                      <div className="flex gap-1.5 flex-wrap">
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${u.email_verified ? 'bg-green-100 text-green-800' : 'bg-black/5 text-[#52525B]'}`}>
+                          {u.email_verified ? <CheckCircle weight="fill" size={10} /> : <XIcon size={10} />} email
+                        </span>
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${u.phone_verified ? 'bg-green-100 text-green-800' : 'bg-black/5 text-[#52525B]'}`}>
+                          {u.phone_verified ? <CheckCircle weight="fill" size={10} /> : <XIcon size={10} />} phone
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${u.is_guest ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{u.is_guest ? "Guest" : "Registered"}</span>
+                    </td>
                     <td className="px-4 py-3">{u.order_count}</td>
                     <td className="px-4 py-3 text-xs text-[#52525B]">{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
                     <td className="px-4 py-3">
-                      <DangerBtn onClick={() => deleteUser(u)} data-testid={`delete-user-${u.id}`} className="!py-1.5 !px-3 !text-xs">
-                        <Trash size={14} />
-                      </DangerBtn>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => triggerVerification(u, "sms")} data-testid={`verify-sms-${u.id}`} title="Send SMS OTP" className="inline-flex items-center justify-center text-xs font-bold border border-black/15 hover:bg-black/5 py-1.5 px-2 rounded-sm">
+                          <ChatCircleText size={12} />
+                        </button>
+                        <button onClick={() => triggerVerification(u, "email")} data-testid={`verify-email-${u.id}`} title="Send Email OTP" className="inline-flex items-center justify-center text-xs font-bold border border-black/15 hover:bg-black/5 py-1.5 px-2 rounded-sm">
+                          <EnvelopeSimple size={12} />
+                        </button>
+                        <DangerBtn onClick={() => deleteUser(u)} data-testid={`delete-user-${u.id}`} className="!py-1.5 !px-2 !text-xs">
+                          <Trash size={12} />
+                        </DangerBtn>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -442,6 +513,79 @@ const Admin = () => {
         </div>
       )}
 
+      {/* NOTIFICATIONS */}
+      {tab === "notifications" && (
+        <div data-testid="admin-notifications" className="space-y-8">
+          <div className="bg-white border border-black/5 p-6 rounded-sm" data-testid="broadcast-card">
+            <h3 className="font-display text-xl font-bold mb-3 inline-flex items-center gap-2"><BellRinging weight="duotone" /> Send broadcast to customers</h3>
+            <p className="text-xs text-[#52525B] mb-4">Goes to: <strong>verified email</strong> only · <strong>verified phone</strong> for SMS · <strong>WhatsApp</strong> to any valid phone. Guests are always included; opted-out registered users are skipped.</p>
+            <Input value={broadcastForm.subject} onChange={e => setBroadcastForm({ ...broadcastForm, subject: e.target.value })} placeholder="Email subject (optional). Use {name} merge field." className="mb-2" data-testid="broadcast-subject" />
+            <textarea value={broadcastForm.body} onChange={e => setBroadcastForm({ ...broadcastForm, body: e.target.value })} rows={4} placeholder="Hi {name}, our new Snapback Cap just dropped — use code WELCOME10…" className="w-full px-3 py-2.5 text-sm border border-black/10 rounded-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF3B30] resize-none mb-3" data-testid="broadcast-body" />
+            <div className="flex flex-wrap gap-3 mb-4">
+              {[["email", "Email", EnvelopeSimple], ["sms", "SMS", ChatCircleText], ["whatsapp", "WhatsApp", WhatsappLogo]].map(([ch, label, Icon]) => (
+                <label key={ch} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={broadcastForm.channels.includes(ch)} onChange={e => setBroadcastForm(b => ({ ...b, channels: e.target.checked ? [...b.channels, ch] : b.channels.filter(c => c !== ch) }))} data-testid={`broadcast-channel-${ch}`} />
+                  <Icon size={14} weight="duotone" /> {label}
+                </label>
+              ))}
+            </div>
+            <PrimaryBtn onClick={sendBroadcast} data-testid="send-broadcast-btn">Send Broadcast</PrimaryBtn>
+          </div>
+
+          {settings && settings.templates && (
+            <div className="bg-white border border-black/5 p-6 rounded-sm" data-testid="templates-card">
+              <h3 className="font-display text-xl font-bold mb-3">Notification Templates</h3>
+              <p className="text-xs text-[#52525B] mb-4">Merge fields: <code>{`{name}`}</code> <code>{`{order_number}`}</code> <code>{`{total}`}</code> <code>{`{status}`}</code> <code>{`{code}`}</code> <code>{`{password}`}</code> <code>{`{email}`}</code></p>
+              <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                {Object.entries(settings.templates).map(([key, tpl]) => (
+                  <div key={key} className="border border-black/10 rounded-sm p-3" data-testid={`template-${key}`}>
+                    <div className="text-xs uppercase tracking-[0.2em] font-bold mb-2">{key.replace(/_/g, ' ')}</div>
+                    {tpl.subject !== undefined && (
+                      <Input value={tpl.subject} onChange={e => setSettings({ ...settings, templates: { ...settings.templates, [key]: { ...tpl, subject: e.target.value } } })} placeholder="Subject" className="mb-2 !text-xs" data-testid={`tpl-${key}-subject`} />
+                    )}
+                    <textarea value={tpl.body || ""} onChange={e => setSettings({ ...settings, templates: { ...settings.templates, [key]: { ...tpl, body: e.target.value } } })} rows={2} className="w-full px-3 py-2 text-xs border border-black/10 rounded-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF3B30] resize-none font-mono" data-testid={`tpl-${key}-body`} />
+                  </div>
+                ))}
+              </div>
+              <PrimaryBtn onClick={saveSettings} className="mt-4" data-testid="save-templates-btn">Save Templates</PrimaryBtn>
+            </div>
+          )}
+
+          <div className="bg-white border border-black/5 p-6 rounded-sm" data-testid="notifications-log-card">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-display text-xl font-bold">Notifications log</h3>
+              <GhostBtn onClick={reloadNotifLog} data-testid="refresh-log-btn" className="!py-1.5 !px-3 !text-xs">Refresh</GhostBtn>
+            </div>
+            <p className="text-xs text-[#52525B] mb-3 bg-amber-50 border border-amber-200 px-3 py-2 rounded-sm">
+              ⚠ <strong>Notifications are MOCKED</strong> (logged here instead of sent). Plug Twilio/SendGrid/WhatsApp-Business credentials into <code>backend/.env</code> to enable real delivery.
+            </p>
+            {notifLog.length === 0 ? <div className="text-center py-8 text-[#52525B] text-sm">No notifications yet.</div> : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-black/5"><tr className="text-left">
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-bold">Channel</th>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-bold">Target</th>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-bold">Subject/Body</th>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-bold">When</th>
+                  </tr></thead>
+                  <tbody>
+                    {notifLog.slice(0, 50).map(n => (
+                      <tr key={n.id} className="border-t border-black/5" data-testid={`notif-row-${n.id}`}>
+                        <td className="px-3 py-2"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${n.channel === 'email' ? 'bg-blue-100 text-blue-800' : n.channel === 'sms' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>{n.channel}</span></td>
+                        <td className="px-3 py-2 text-xs text-[#52525B]">{n.target}</td>
+                        <td className="px-3 py-2 text-xs"><div className="font-semibold truncate max-w-md">{n.subject || ""}</div><div className="text-[#52525B] truncate max-w-md">{n.body}</div></td>
+                        <td className="px-3 py-2 text-xs text-[#52525B] whitespace-nowrap">{new Date(n.created_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+
       {/* RFQs */}
       {tab === "rfqs" && (
         <div className="space-y-3" data-testid="admin-rfqs">
@@ -476,6 +620,16 @@ const Admin = () => {
             <div className="text-xs uppercase tracking-[0.2em] font-bold mb-2">Free Shipping Threshold (₹)</div>
             <Input type="number" min={0} value={settings.free_shipping_threshold || 0} onChange={e => setSettings({ ...settings, free_shipping_threshold: parseInt(e.target.value || 0) })} data-testid="free-shipping-threshold-input" />
             <div className="text-xs text-[#52525B] mt-1">Orders ≥ this amount get FREE shipping (else ₹49). Shown to customers as a flash card.</div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] font-bold mb-2">Notification Scheduler Hour (24h, IST)</div>
+            <Input type="number" min={0} max={23} value={settings.scheduler_hour ?? 8} onChange={e => setSettings({ ...settings, scheduler_hour: parseInt(e.target.value || 0) })} data-testid="scheduler-hour-input" />
+            <div className="text-xs text-[#52525B] mt-1">Daily status-change notifications run at this hour. Default 8 = 8:00 AM.</div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] font-bold mb-2">Auto-bestseller threshold (sold count)</div>
+            <Input type="number" min={1} value={settings.bestseller_threshold ?? 200} onChange={e => setSettings({ ...settings, bestseller_threshold: parseInt(e.target.value || 0) })} data-testid="bestseller-threshold-input" />
+            <div className="text-xs text-[#52525B] mt-1">Products with sold_count ≥ this (in active categories) get auto-marked bestseller daily at 2 AM.</div>
           </div>
           <div>
             <div className="text-xs uppercase tracking-[0.2em] font-bold mb-2">AI Model</div>
